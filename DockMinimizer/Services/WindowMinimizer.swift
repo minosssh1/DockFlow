@@ -7,9 +7,9 @@ class WindowMinimizer {
     private init() {}
 
     /// Toggles minimization state of the given application
-    /// If app is hidden, activates it. Otherwise, hides the app.
+    /// If app is hidden or all windows are minimized, lets Dock restore it. Otherwise, minimizes windows with Genie animation.
     /// - Parameter app: The running application to toggle
-    /// - Returns: True if event should be consumed (hide action), false if system should handle it (activate action)
+    /// - Returns: True if event should be consumed (minimize action), false if system should handle it (activate/restore action)
     @discardableResult
     func toggleMinimization(app: NSRunningApplication) -> Bool {
         let appName = app.localizedName ?? "Unknown"
@@ -17,35 +17,81 @@ class WindowMinimizer {
 
         // Check accessibility permission
         guard AXIsProcessTrusted() else {
-            LogService.shared.log(level: .error, category: "WindowMinimizer", message: "辅助功能权限未授予")
+            LogService.shared.log(level: .error, category: "WindowMinimizer", message: "Accessibility permission not granted")
             showPermissionNotification()
             return false
         }
 
-        // Check if app is hidden
-        let isHidden = app.isHidden
-
-        if isHidden {
-            // Restore: activate the app
+        // If app is hidden, restore it
+        if app.isHidden {
             let success = app.activate()
-            LogService.shared.log(category: "WindowMinimizer", message: "激活应用: \(appName) (PID: \(pid)) - \(success ? "成功" : "失败")")
+            LogService.shared.log(category: "WindowMinimizer", message: "Activate app: \(appName) (PID: \(pid)) - \(success ? "success" : "failed")")
             return false
-        } else {
-            // Hide: hide the entire app
+        }
+
+        let axApp = AXUIElementCreateApplication(pid)
+        var windowsVal: AnyObject?
+        let res = AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsVal)
+
+        guard res == .success, let windows = windowsVal as? [AXUIElement], !windows.isEmpty else {
+            // Fallback: hide app if windows cannot be inspected
             app.hide()
-            LogService.shared.log(category: "WindowMinimizer", message: "隐藏应用: \(appName) (PID: \(pid))")
+            LogService.shared.log(category: "WindowMinimizer", message: "Hide app (no AX windows): \(appName)")
             return true
         }
+
+        // Find visible (non-minimized) windows
+        var visibleWindows: [AXUIElement] = []
+        for win in windows {
+            var minVal: AnyObject?
+            if AXUIElementCopyAttributeValue(win, kAXMinimizedAttribute as CFString, &minVal) == .success,
+               let isMin = minVal as? Bool, isMin {
+                continue
+            }
+            visibleWindows.append(win)
+        }
+
+        if visibleWindows.isEmpty {
+            // All windows already minimized: let macOS Dock unminimize them with reverse Genie animation!
+            LogService.shared.log(category: "WindowMinimizer", message: "All windows already minimized for \(appName), passing click to Dock")
+            return false
+        }
+
+        // Minimize visible windows with Genie animation
+        var didMinimize = false
+        for win in visibleWindows {
+            var btnVal: AnyObject?
+            if AXUIElementCopyAttributeValue(win, kAXMinimizeButtonAttribute as CFString, &btnVal) == .success,
+               let btn = btnVal {
+                if AXUIElementPerformAction(btn as! AXUIElement, kAXPressAction as CFString) == .success {
+                    didMinimize = true
+                    continue
+                }
+            }
+
+            let setRes = AXUIElementSetAttributeValue(win, kAXMinimizedAttribute as CFString, true as CFTypeRef)
+            if setRes == .success {
+                didMinimize = true
+            }
+        }
+
+        if !didMinimize {
+            app.hide()
+            LogService.shared.log(category: "WindowMinimizer", message: "Hide fallback: \(appName)")
+        } else {
+            LogService.shared.log(category: "WindowMinimizer", message: "Minimized with Genie: \(appName)")
+        }
+        return true
     }
 
     private func showPermissionNotification() {
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "需要辅助功能权限"
-            alert.informativeText = "DockMinimizer 需要辅助功能权限才能最小化其他应用的窗口。请在系统设置中授权。"
+            alert.messageText = L10n.permissionRequiredTitle
+            alert.informativeText = L10n.permissionRequiredMessage
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "打开系统设置")
-            alert.addButton(withTitle: "取消")
+            alert.addButton(withTitle: L10n.openSystemSettings)
+            alert.addButton(withTitle: L10n.later)
 
             if alert.runModal() == .alertFirstButtonReturn {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {

@@ -227,8 +227,8 @@ class DockMonitor: ObservableObject {
         }
     }
 
-    /// Get the name of the app whose Dock icon is at the given click location
-    private func getAppNameAtDockLocation(_ clickPoint: CGPoint) -> String? {
+    /// Get the name and URL of the app whose Dock icon is at the given click location
+    private func getAppInfoAtDockLocation(_ clickPoint: CGPoint) -> (title: String, urlString: String?)? {
         guard let dockApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else {
             return nil
         }
@@ -283,14 +283,22 @@ class DockMonitor: ObservableObject {
                 if rect.contains(clickPoint) {
                     var titleValue: AnyObject?
                     let titleResult = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleValue)
-                    let title = (titleResult == .success) ? (titleValue as? String ?? "无标题") : "无标题"
+                    let title = (titleResult == .success) ? (titleValue as? String ?? "") : ""
+
+                    var subroleValue: AnyObject?
+                    AXUIElementCopyAttributeValue(item, kAXSubroleAttribute as CFString, &subroleValue)
+                    let subrole = (subroleValue as? String) ?? ""
 
                     var roleDescValue: AnyObject?
                     AXUIElementCopyAttributeValue(item, kAXRoleDescriptionAttribute as CFString, &roleDescValue)
                     let roleDesc = (roleDescValue as? String) ?? ""
 
-                    if roleDesc.contains("应用程序") || roleDesc.contains("application") {
-                        return title
+                    var urlValue: AnyObject?
+                    AXUIElementCopyAttributeValue(item, "AXURL" as CFString, &urlValue)
+                    let urlStr = urlValue as? String
+
+                    if subrole == "AXApplicationDockItem" || roleDesc.contains("应用程序") || roleDesc.contains("application") || roleDesc.contains("приложение") || roleDesc.contains("dock") {
+                        return (title, urlStr)
                     }
                     return nil
                 }
@@ -298,6 +306,94 @@ class DockMonitor: ObservableObject {
         }
 
         return nil
+    }
+
+    private func handleCloseButtonClick(at location: CGPoint) -> Bool {
+        let sys = AXUIElementCreateSystemWide()
+        var hitElem: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(sys, Float(location.x), Float(location.y), &hitElem) == .success,
+              let element = hitElem else {
+            return false
+        }
+
+        var subroleVal: AnyObject?
+        AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleVal)
+        guard let subrole = subroleVal as? String, subrole == (kAXCloseButtonSubrole as String) else {
+            return false
+        }
+
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success, pid != 0 else {
+            return false
+        }
+
+        guard pid != ProcessInfo.processInfo.processIdentifier else { return false }
+
+        guard let app = NSRunningApplication(processIdentifier: pid),
+              app.activationPolicy == .regular else {
+            return false
+        }
+
+        let excluded: Set<String> = [
+            "com.apple.finder",
+            "com.apple.dock",
+            "com.apple.loginwindow",
+            "com.apple.SystemUIServer",
+            "com.apple.WindowManager",
+            "com.jacktony.dockminimizer"
+        ]
+
+        if let bid = app.bundleIdentifier, excluded.contains(bid) {
+            return false
+        }
+
+        LogService.shared.log(category: "CloseButton", message: "Клик по красному крестику: \(app.localizedName ?? "") (PID: \(pid))")
+
+        // Проверяем количество стандартных окон
+        let axApp = AXUIElementCreateApplication(pid)
+        var windowsVal: AnyObject?
+        _ = AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsVal)
+        let windows = (windowsVal as? [AXUIElement]) ?? []
+
+        let standardWindows = windows.filter { win in
+            var subVal: AnyObject?
+            AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subVal)
+            let sub = (subVal as? String) ?? ""
+            return sub == (kAXStandardWindowSubrole as String) || sub == ""
+        }
+
+        if standardWindows.count <= 1 {
+            // Одно окно (или последнее):
+            // ВАЖНО: Мы перехватываем клик (return true), чтобы окно НЕ закрывалось отдельно до завершения!
+            // Браузеры (Chrome, Safari) и приложения сохраняют свои открытые вкладки/окна,
+            // только если завершаются целиком с открытыми окнами (ровно так, как работает Command+Q).
+            LogService.shared.log(category: "CloseButton", message: "Завершаем приложение целиком с сохранением сессии (Cmd+Q): \(app.localizedName ?? "")")
+            DispatchQueue.main.async {
+                app.terminate()
+            }
+            return true
+        } else {
+            // Несколько окон: даем текущему окну закрыться, и если не осталось окон — завершаем приложение
+            LogService.shared.log(category: "CloseButton", message: "Осталось окон: \(standardWindows.count), закрываем окно")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                guard let checkApp = NSRunningApplication(processIdentifier: pid), !checkApp.isTerminated else { return }
+                let checkAx = AXUIElementCreateApplication(pid)
+                var checkWinsVal: AnyObject?
+                _ = AXUIElementCopyAttributeValue(checkAx, kAXWindowsAttribute as CFString, &checkWinsVal)
+                let checkWins = (checkWinsVal as? [AXUIElement]) ?? []
+                let remaining = checkWins.filter { win in
+                    var subVal: AnyObject?
+                    AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subVal)
+                    let sub = (subVal as? String) ?? ""
+                    return sub == (kAXStandardWindowSubrole as String) || sub == ""
+                }
+                if remaining.isEmpty {
+                    LogService.shared.log(category: "CloseButton", message: "Все окна закрыты, завершаем приложение: \(checkApp.localizedName ?? "")")
+                    checkApp.terminate()
+                }
+            }
+            return false
+        }
     }
 
     func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Bool {
@@ -308,22 +404,40 @@ class DockMonitor: ObservableObject {
         let displayBounds = CGDisplayBounds(mainScreenID)
         let screenHeight = displayBounds.height
 
-        let dockHeight: CGFloat = 100
+        let dockHeight: CGFloat = 140
 
-        guard location.y >= screenHeight - dockHeight else { return false }
+        // 1. Проверяем клик по Доку (для сворачивания / разворачивания с Джином)
+        if location.y >= screenHeight - dockHeight {
+            guard let appInfo = getAppInfoAtDockLocation(location) else { return false }
+            guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
 
-        guard let clickedAppName = getAppNameAtDockLocation(location) else { return false }
+            var isMatch = false
+            if let urlStr = appInfo.urlString, let itemURL = URL(string: urlStr), let frontURL = frontApp.bundleURL {
+                if itemURL.standardizedFileURL == frontURL.standardizedFileURL {
+                    isMatch = true
+                }
+            }
 
-        guard let frontmostName = currentFrontmostName,
-              clickedAppName == frontmostName || clickedAppName.contains(frontmostName) || frontmostName.contains(clickedAppName) else {
-            return false
-        }
+            if !isMatch, let frontmostName = currentFrontmostName {
+                let clicked = appInfo.title.lowercased()
+                let front = frontmostName.lowercased()
+                if clicked == front || clicked.contains(front) || front.contains(clicked) {
+                    isMatch = true
+                }
+            }
 
-        LogService.shared.log(category: "DockMonitor", message: "点击 Dock 图标: \(clickedAppName)")
+            guard isMatch else { return false }
 
-        if let frontApp = NSWorkspace.shared.frontmostApplication {
+            LogService.shared.log(category: "DockMonitor", message: "点击 Dock 图标: \(appInfo.title)")
+
             let shouldConsume = WindowMinimizer.shared.toggleMinimization(app: frontApp)
             return shouldConsume
+        }
+
+        // 2. Проверяем клик по красному крестику (полное закрытие через Cmd+Q)
+        let quitOnClose = UserDefaults.standard.object(forKey: "quitOnCloseButton") == nil || UserDefaults.standard.bool(forKey: "quitOnCloseButton")
+        if quitOnClose {
+            _ = handleCloseButtonClick(at: location)
         }
 
         return false

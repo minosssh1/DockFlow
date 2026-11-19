@@ -1,237 +1,96 @@
-# DockMinimizer
+# 🌊 DockFlow for macOS
 
-点击 Dock 图标隐藏应用窗口 — 一个优雅的 macOS 后台工具
+> **Плавное управление Доком и умное закрытие окон (⌘Q) в стиле macOS 27.**  
+> *Эффект Джинна по клику на Док, мгновенное завершение приложений по красному крестику и сохранение сессий браузеров.*
 
-[中文](#中文说明) | [English](#english)
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-14.0%2B%20%7C%2027.0%2B-blue?style=for-the-badge&logo=apple" alt="macOS" />
+  <img src="https://img.shields.io/badge/Architecture-Apple%20Silicon%20(arm64)-orange?style=for-the-badge" alt="Architecture" />
+  <img src="https://img.shields.io/badge/Swift-6.4-F05138?style=for-the-badge&logo=swift" alt="Swift" />
+  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License" />
+</p>
+
+> 🔱 **О проекте и авторстве:**  
+> **DockFlow** является глубоко переработанным форком проекта **[DockMinimizer](https://github.com/JackTonyMa/DockMinimizer)** разработчика *JackTonyMa*.  
+> В форке полностью переосмыслено поведение окон, добавлены аппаратная анимация Джинна, модуль автозавершения через CoreGraphics, сохранение сессий браузеров, адаптивная иконка и новый интерфейс в стиле macOS 27.
 
 ---
+
+[Русский](#русский) | [English](#english)
+
+---
+
+## Русский
+
+### 📌 Почему DockFlow?
+
+В стандартной macOS есть два давних неудобства оконного менеджера, к которым сложно привыкнуть (особенно после Windows):
+1. **Клик по Доку не сворачивает окно:** Если приложение уже активно, повторный клик по его иконке в Доке ничего не делает.
+2. **Красный крестик не закрывает программу:** Нажатие на крестик лишь закрывает окно, оставляя фоновый процесс висеть в памяти и в Доке с точкой, требуя постоянного нажатия `⌘ + Q`.
+
+**DockFlow** элегантно и бесшовно решает обе проблемы на уровне системы.
+
+---
+
+### 🚀 Что нового по сравнению с оригинальным DockMinimizer
+
+| Возможность | Оригинальный DockMinimizer | **DockFlow (Этот форк)** |
+|---|---|---|
+| **Анимация Дока** | Мгновенное исчезновение (`app.hide`) | 🪄 **Настоящая плавная анимация Джинна** в Док и обратно |
+| **Красный крестик** | Только скрывает окно | ❌ **Полное завершение приложения (⌘Q)** при закрытии последнего окна |
+| **Вкладки браузеров** | Терялись при закрытии | 💾 **Сессии и все вкладки сохраняются** (Safari, Chrome и др.) |
+| **Safari (песочница)** | Не определялось закрытие | 🛡️ **Обход через CoreGraphics** (видит реальные окна на экране) |
+| **Локализация** | Только китайский и английский | 🌐 **Мультиязычность** (полная поддержка русской macOS) |
+| **Интерфейс** | Базовый диалог | 🎨 **Современный UI в стиле macOS 27** (группированные карточки, SF Symbols) |
+| **Иконка** | Стандартная растровая | 🔮 **Адаптивный сквиркл** с поддержкой тёмной/светлой темы и системной перекраски (Tinted Mode) |
+| **Установщик** | Обычный DMG | 💿 **Дизайнерский Retina DMG** со стрелкой drag-and-drop |
+
+---
+
+### ✨ Ключевые функции
+
+#### 1. 🪄 Эффект Джинна (Genie Effect) по клику на Док
+* **Windows-style переключение:** Повторный клик по значку активного приложения в Доке плавно сворачивает его окно с анимацией Джинна прямо в Док.
+* **Разворачивание:** Следующий клик разворачивает окно обратно с тем же эффектом.
+* **Каскад:** При нескольких окнах они сворачиваются плавно друг за другом.
+
+#### 2. ❌ Полное закрытие по красному крестику (⌘Q)
+* При нажатии на красный крестик последнего открытого окна приложение завершается **целиком**, точно так же, как по нажатию `Command + Q`. Точка в Доке исчезает, память освобождается.
+* **Умная работа с несколькими окнами:** Если открыто 2 или больше окон, крестик закрывает **только текущее окно**. Приложение завершится только тогда, когда закрыто последнее окно.
+* **Сохранение вкладок и сессий:** Клик перехватывается до того, как окно уничтожит свои вкладки. Браузеры (Safari, Google Chrome, Яндекс и др.) успевают зафиксировать открытые вкладки и сессию. При следующем запуске всё восстанавливается!
+* **Защита системы:** Системные процессы (`Finder`, `Dock` и др.) защищены и никогда не закрываются по ошибке.
+
+#### 3. ⚡ Архитектура CoreGraphics & Безотказность
+* **Без зависаний ввода:** В отличие от сырых скриптов перехвата, утилита использует безопасную обработку таймаутов `CGEventTap` и ядро Window Server (`CGWindowListCopyWindowInfo`).
+* **Обход песочницы Safari:** Safari в macOS при закрытии окна переводит его в состояние `visible: false`, из-за чего обычные скрипты не видят закрытия. DockFlow опрашивает сам системный композитор экрана и надёжно закрывает Safari.
+
+---
+
+### 📦 Установка
+
+1. Скачайте **`DockFlow-Installer.dmg`**.
+2. Откройте образ и перетащите **DockFlow** в папку **Applications**.
+3. Запустите приложение.
+4. При первом запуске выдайте разрешение в:  
+   `Системные настройки → Конфиденциальность и безопасность → Универсальный доступ`.
+
+---
+
+<br/>
 
 ## English
 
-### Introduction
+### 📌 About DockFlow
 
-DockMinimizer is a lightweight macOS background utility that brings Windows-style taskbar behavior to macOS. Click the Dock icon of the active application to hide all its windows — just like clicking a taskbar button in Windows.
+**DockFlow** is a native, lightweight window & dock enhancer for macOS that bridges the gap between Windows ergonomics and macOS aesthetics:
+1. Clicking an active app's Dock icon smoothly minimizes it into the Dock with the native **Genie effect** and restores it on the next click.
+2. Clicking the red close button completely quits the application (like `⌘ + Q`) while preserving browser tabs and window sessions.
 
-### Features
-
-- 🎯 **One-click hide**: Click the active app's Dock icon to hide its windows
-- 🔄 **Toggle restore**: Click the same Dock icon again to restore all windows
-- 🪟 **Windows-style workflow**: Familiar behavior for users switching from Windows
-- 🔒 **Privacy first**: Runs locally, no network requests, no data collection
-- 📝 **Optional logging**: Built-in log service for troubleshooting (disabled by default)
-
-### Requirements
-
-- macOS 15.0 or later
-- Accessibility permissions required (will prompt on first launch)
-
-### Installation
-
-1. **Build from source**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/DockMinimizer.git
-   cd DockMinimizer
-   xcodebuild -project DockMinimizer.xcodeproj -scheme DockMinimizer -configuration Release build
-   ```
-
-2. **Or open in Xcode**
-   - Open `DockMinimizer.xcodeproj` in Xcode
-   - Build and run (⌘R)
-
-### Usage
-
-1. Launch DockMinimizer — it runs in the background (status bar shows its status)
-2. Grant Accessibility permissions when prompted
-3. Click any active application's Dock icon to hide all its windows
-4. Click the same Dock icon again to restore all windows
-
-### Status Bar Menu
-
-- **Settings...** — Open settings window (language, logging, etc.)
-- **DockMinimizer Running** — App status indicator
-- **Check Permissions** — Verify accessibility access
-- **View Logs** — Open log folder in Finder
-- **Quit (⌘Q)** — Exit the application
-
-### Settings
-
-- **Language** — Switch between English, 简体中文, or follow system
-- **Launch at Login** — Automatically start when you log in
-- **Logging** — Enable/disable operation logging for troubleshooting
-
-### Technical Details
-
-**Architecture:**
-- SwiftUI + AppDelegate lifecycle pattern
-- CGEventTap for global Dock click monitoring
-- Accessibility API (AXUIElement) for hiding apps
-- Local file-based logging service
-
-**Key Files:**
-```
-DockMinimizer/
-├── DockMinimizerApp.swift    # App entry point
-├── AppDelegate.swift         # Status bar & permissions
-├── Services/
-│   ├── DockMonitor.swift     # Dock click monitoring
-│   ├── WindowMinimizer.swift # App hiding logic
-│   └── LogService.swift      # Logging service
-└── Models/
-    └── AppState.swift        # App state model
-```
-
-### Troubleshooting
-
-**App doesn't hide:**
-- Check Accessibility permissions in System Settings → Privacy & Security → Accessibility
-- Use "Check Permissions" from the status bar menu
-
-**Logs location:** `~/Library/Logs/DockMinimizer/app.log`
-
-### License
-
-MIT License
+> 🔱 **Attribution:**  
+> This project is an advanced fork of **[DockMinimizer](https://github.com/JackTonyMa/DockMinimizer)** by *JackTonyMa*, significantly expanded with native Genie animations, CoreGraphics zero-window auto-termination, browser session preservation, adaptive icons, and a macOS 27 redesign.
 
 ---
 
-## Contributing Translations / 贡献翻译
+### 📄 License
 
-We welcome community contributions for translations! Here's how to add a new language:
-
-### Supported Languages / 支持的语言
-
-| Language | Code | Status |
-|----------|------|--------|
-| English | `en` | ✅ Complete |
-| 简体中文 | `zh-Hans` | ✅ Complete |
-
-### How to Add a New Language / 如何添加新语言
-
-1. Navigate to `DockMinimizer/Resources/` directory
-2. Create a new folder named `{language-code}.lproj` (e.g., `ja.lproj` for Japanese)
-3. Copy `en.lproj/Localizable.strings` to your new folder
-4. Translate the strings in the copied file
-5. Submit a pull request!
-
-### Example / 示例
-
-For Japanese (`ja`):
-```bash
-mkdir -p DockMinimizer/Resources/ja.lproj
-cp DockMinimizer/Resources/en.lproj/Localizable.strings DockMinimizer/Resources/ja.lproj/
-# Edit the .strings file with Japanese translations
-```
-
-### File Structure / 文件结构
-
-```
-DockMinimizer/Resources/
-├── en.lproj/
-│   └── Localizable.strings    # English
-├── zh-Hans.lproj/
-│   └── Localizable.strings    # Simplified Chinese
-└── {your-lang}.lproj/
-    └── Localizable.strings    # Your translation
-```
-
-### String Keys Reference / 字符串键参考
-
-| Key | Description |
-|-----|-------------|
-| `Settings...` | Menu item to open settings |
-| `DockMinimizer Running` | Status indicator in menu |
-| `Check Permissions` | Menu item to check accessibility |
-| `View Logs` | Menu item to open log folder |
-| `Quit (⌘Q)` | Menu item to quit app |
-| `Accessibility Permission Granted` | Permission status label |
-| `Enable Logging` | Toggle for logging feature |
-
----
-
----
-
-## 中文说明
-
-### 简介
-
-DockMinimizer 是一款轻量级 macOS 后台工具，为 macOS 带来 Windows 任务栏的操作习惯。点击当前激活应用的 Dock 图标，即可隐藏该应用的所有窗口 — 就像在 Windows 中点击任务栏按钮一样。
-
-### 功能特性
-
-- 🎯 **一键隐藏**：点击当前应用 Dock 图标，隐藏其所有窗口
-- 🔄 **切换恢复**：再次点击同一 Dock 图标，恢复所有窗口
-- 🪟 **Windows 风格操作**：从 Windows 切换过来的用户无需改变习惯
-- 🔒 **隐私优先**：本地运行，无网络请求，无数据收集
-- 📝 **可选日志**：内置日志服务便于排查问题（默认关闭）
-
-### 系统要求
-
-- macOS 15.0 或更高版本
-- 需要辅助功能权限（首次启动时会提示）
-
-### 安装方法
-
-1. **源码编译**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/DockMinimizer.git
-   cd DockMinimizer
-   xcodebuild -project DockMinimizer.xcodeproj -scheme DockMinimizer -configuration Release build
-   ```
-
-2. **或使用 Xcode**
-   - 在 Xcode 中打开 `DockMinimizer.xcodeproj`
-   - 编译并运行 (⌘R)
-
-### 使用方法
-
-1. 启动 DockMinimizer — 它在后台运行（状态栏显示状态）
-2. 根据提示授予辅助功能权限
-3. 点击任意激活应用的 Dock 图标，隐藏其所有窗口
-4. 再次点击同一 Dock 图标，恢复所有窗口
-
-### 状态栏菜单
-
-- **设置...** — 打开设置窗口（语言、日志等）
-- **DockMinimizer 运行中** — 应用状态指示
-- **检查权限** — 验证辅助功能访问权限
-- **查看日志** — 在访达中打开日志文件夹
-- **退出 (⌘Q)** — 退出应用
-
-### 设置
-
-- **语言** — 切换 English、简体中文 或跟随系统
-- **开机自启** — 登录时自动启动应用
-- **日志** — 启用/禁用操作日志便于排查问题
-
-### 技术细节
-
-**架构：**
-- SwiftUI + AppDelegate 生命周期模式
-- CGEventTap 全局 Dock 点击监控
-- Accessibility API (AXUIElement) 应用隐藏
-- 本地文件日志服务
-
-**关键文件：**
-```
-DockMinimizer/
-├── DockMinimizerApp.swift    # 应用入口
-├── AppDelegate.swift         # 状态栏与权限管理
-├── Services/
-│   ├── DockMonitor.swift     # Dock 点击监控
-│   ├── WindowMinimizer.swift # 应用隐藏逻辑
-│   └── LogService.swift      # 日志服务
-└── Models/
-    └── AppState.swift        # 应用状态模型
-```
-
-### 常见问题
-
-**无法隐藏窗口：**
-- 检查系统设置 → 隐私与安全性 → 辅助功能 中的权限
-- 使用状态栏菜单中的"检查权限"功能
-
-**日志位置：** `~/Library/Logs/DockMinimizer/app.log`
-
-### 许可证
-
-MIT License
+Distributed under the **MIT License**. Original work Copyright © 2025 JackTonyMa. Fork enhancements Copyright © 2026.

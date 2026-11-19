@@ -34,6 +34,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Start monitoring Dock clicks
         dockMonitor = DockMonitor.shared
 
+        // Start AutoQuitter (Command + Q on closing last window)
+        AutoQuitter.shared.start()
+
         // 启动时根据设置决定是否打开设置窗口
         // UserDefaults.bool returns false if key doesn't exist, but we want default true
         let hasKey = UserDefaults.standard.object(forKey: "showPanelOnLaunch") != nil
@@ -97,7 +100,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         button.title = "▼"
         button.font = NSFont.systemFont(ofSize: 14)
-        button.toolTip = L10n.statusBarTooltip
+        button.toolTip = "DockFlow"
 
         updateStatusItemMenu()
 
@@ -116,9 +119,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let statusMenuItem = NSMenuItem(title: L10n.dockMinimizerRunning, action: nil, keyEquivalent: "")
+        let statusMenuItem = NSMenuItem(title: "DockFlow активен", action: nil, keyEquivalent: "")
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
+
+        let quitOnCloseKey = "quitOnCloseButton"
+        let isQuitOnClose = UserDefaults.standard.object(forKey: quitOnCloseKey) == nil || UserDefaults.standard.bool(forKey: quitOnCloseKey)
+        let quitOnCloseItem = NSMenuItem(title: "Закрывать по крестику (⌘Q)", action: #selector(toggleQuitOnClose), keyEquivalent: "")
+        quitOnCloseItem.target = self
+        quitOnCloseItem.state = isQuitOnClose ? .on : .off
+        menu.addItem(quitOnCloseItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -150,6 +160,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(quitItem)
 
         item.menu = menu
+    }
+
+    @objc private func toggleQuitOnClose() {
+        let key = "quitOnCloseButton"
+        let current = UserDefaults.standard.object(forKey: key) == nil || UserDefaults.standard.bool(forKey: key)
+        UserDefaults.standard.set(!current, forKey: key)
+        updateStatusItemMenu()
     }
 
     @objc private func checkPermissionStatus() {
@@ -225,12 +242,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // 创建新窗口
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 560),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 560),
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
-        window.title = settingsTitle
+        window.title = "DockFlow"
         window.center()
         window.contentView = NSHostingView(rootView: SettingsView())
         window.isReleasedWhenClosed = false

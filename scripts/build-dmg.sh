@@ -1,84 +1,59 @@
 #!/bin/bash
-
-# DockMinimizer 打包脚本
-# 用法: ./build-dmg.sh [版本号]
-
 set -e
 
-# 获取项目目录
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-DMG_DIR="$PROJECT_DIR/dmg"
+VOL_NAME="DockFlow"
+RW_DMG="/tmp/DockFlow-rw.dmg"
+FINAL_DMG="${HOME}/Desktop/DockFlow-Installer.dmg"
+MOUNT_DIR="/Volumes/$VOL_NAME"
 
-# 获取版本号
-if [ -z "$1" ]; then
-    VERSION=$(xcodebuild -project "$PROJECT_DIR/DockMinimizer.xcodeproj" -showBuildSettings 2>/dev/null | grep MARKETING_VERSION | tr -d ' ' | cut -d'=' -f2 | head -1)
-    if [ -z "$VERSION" ]; then
-        VERSION="1.0"
-    fi
-else
-    VERSION="$1"
-fi
+# Clean up any previous mounts or files
+hdiutil detach "$MOUNT_DIR" 2>/dev/null || true
+rm -f "$RW_DMG" "$FINAL_DMG"
 
-echo "=========================================="
-echo "DockMinimizer v$VERSION 打包脚本"
-echo "=========================================="
+echo "1. Creating read-write DMG image..."
+hdiutil create -size 40m -volname "$VOL_NAME" -fs HFS+ -ov "$RW_DMG" >/dev/null
 
-# 清理旧的构建
-echo "📦 清理旧构建..."
-rm -rf /tmp/DockMinimizer-dmg
-mkdir -p /tmp/DockMinimizer-dmg
+echo "2. Mounting image..."
+hdiutil attach "$RW_DMG" -readwrite -nobrowse >/dev/null
+sleep 1
 
-# 构建 Release 版本
-echo "🔨 构建 Release 版本 (通用二进制)..."
-xcodebuild -project "$PROJECT_DIR/DockMinimizer.xcodeproj" \
-    -scheme DockMinimizer \
-    -configuration Release \
-    -destination 'generic/platform=macOS' \
-    clean build \
-    | xcpretty --simple 2>/dev/null || xcodebuild -project "$PROJECT_DIR/DockMinimizer.xcodeproj" \
-    -scheme DockMinimizer \
-    -configuration Release \
-    -destination 'generic/platform=macOS' \
-    clean build
+echo "3. Copying app and assets..."
+mkdir -p "$MOUNT_DIR/.background"
+cp /tmp/dmg_background.png "$MOUNT_DIR/.background/background.png" 2>/dev/null || true
+cp -R "/Applications/DockFlow.app" "$MOUNT_DIR/"
+ln -s /Applications "$MOUNT_DIR/Applications"
 
-# 验证架构
-echo "✅ 验证架构..."
-ARCHS=$(lipo -archs "$HOME/Library/Developer/Xcode/DerivedData/DockMinimizer-"*/Build/Products/Release/DockMinimizer.app/Contents/MacOS/DockMinimizer 2>/dev/null | tail -1)
-echo "   包含架构: $ARCHS"
+echo "4. Setting window layout via Finder..."
+osascript << 'APPLESCRIPT'
+tell application "Finder"
+    tell disk "DockFlow"
+        open
+        delay 1
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set the bounds of container window to {200, 150, 860, 590}
+        set theViewOptions to the icon view options of container window
+        set arrangement of theViewOptions to not arranged
+        set icon size of theViewOptions to 108
+        set background picture of theViewOptions to file ".background:background.png"
+        set position of item "DockFlow.app" of container window to {165, 215}
+        set position of item "Applications" of container window to {495, 215}
+        update without registering applications
+        delay 2
+        close
+    end tell
+end tell
+APPLESCRIPT
 
-# 复制 app 到临时目录
-echo "📋 准备 DMG 内容..."
-APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData/DockMinimizer-*/Build/Products/Release -name "DockMinimizer.app" -type d 2>/dev/null | head -1)
-if [ -z "$APP_PATH" ]; then
-    echo "❌ 找不到构建的 app"
-    exit 1
-fi
-cp -R "$APP_PATH" /tmp/DockMinimizer-dmg/
+echo "5. Finalizing image..."
+sync
+sleep 1
+hdiutil detach "$MOUNT_DIR" >/dev/null
 
-# 创建 Applications 快捷方式
-ln -s /Applications /tmp/DockMinimizer-dmg/Applications
+echo "6. Compressing into release DMG..."
+hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -o "$FINAL_DMG" -ov >/dev/null
+rm -f "$RW_DMG"
 
-# 创建 DMG
-echo "💿 创建 DMG..."
-mkdir -p "$DMG_DIR"
-DMG_PATH="$DMG_DIR/DockMinimizer-$VERSION.dmg"
-rm -f "$DMG_PATH"
-hdiutil create -volname "DockMinimizer" \
-    -srcfolder /tmp/DockMinimizer-dmg \
-    -ov -format UDZO \
-    "$DMG_PATH" \
-    > /dev/null
-
-# 清理临时文件
-rm -rf /tmp/DockMinimizer-dmg
-
-# 显示结果
-DMG_SIZE=$(ls -lh "$DMG_PATH" | awk '{print $5}')
-echo ""
-echo "=========================================="
-echo "✅ 打包完成!"
-echo "=========================================="
-echo "   文件: $DMG_PATH"
-echo "   大小: $DMG_SIZE"
-echo ""
+echo "✅ Done! Final DMG created at $FINAL_DMG"
+ls -lh "$FINAL_DMG"

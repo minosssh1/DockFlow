@@ -28,235 +28,279 @@ class LaunchAtLoginManager: ObservableObject {
     }
 }
 
-struct SettingsView: View {
-    @AppStorage("loggingEnabled") private var loggingEnabled = false
-    @AppStorage("showPanelOnLaunch") private var showPanelOnLaunch = true
-    @StateObject private var localizationManager = LocalizationManager.shared
-    @StateObject private var launchAtLoginManager = LaunchAtLoginManager.shared
-    @StateObject private var dockMonitor = DockMonitor.shared
-    @StateObject private var updateService = UpdateService.shared
+// MARK: - Setting Row Component (macOS 27 System Style)
+
+struct SettingRow<Content: View>: View {
+    let iconName: String
+    let iconColor: Color
+    let title: String
+    let subtitle: String
+    let trailing: Content
+
+    init(
+        iconName: String,
+        iconColor: Color,
+        title: String,
+        subtitle: String,
+        @ViewBuilder trailing: () -> Content
+    ) {
+        self.iconName = iconName
+        self.iconColor = iconColor
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = trailing()
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.largeTitle)
-                    .foregroundColor(.accentColor)
+        HStack(alignment: .center, spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(iconColor.gradient)
+                    .frame(width: 32, height: 32)
+                    .shadow(color: iconColor.opacity(0.3), radius: 3, x: 0, y: 2)
 
-                VStack(alignment: .leading) {
-                    Text("DockMinimizer")
-                        .font(.headline)
-                    Text(L10n.settingsSubtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                Image(systemName: iconName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
             }
 
-            Divider()
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.primary)
 
-            // Language Setting
-            HStack {
-                Text(L10n.language)
-                Spacer()
-                Picker("", selection: Binding(
-                    get: { localizationManager.currentLanguage },
-                    set: { localizationManager.setLanguage($0) }
-                )) {
-                    ForEach(AppLanguage.allCases, id: \.self) { lang in
-                        Text(lang.displayName).tag(lang)
-                    }
-                }
-                .frame(width: 120)
-            }
-
-            // Launch at Login
-            Toggle(L10n.launchAtLogin, isOn: Binding(
-                get: { launchAtLoginManager.isEnabled },
-                set: { launchAtLoginManager.isEnabled = $0 }
-            ))
-            .help(L10n.launchAtLoginHelp)
-
-            // Show Panel on Launch
-            Toggle(L10n.showPanelOnLaunch, isOn: $showPanelOnLaunch)
-                .help(L10n.showPanelOnLaunchHelp)
-
-            Divider()
-
-            // 辅助功能权限状态
-            HStack {
-                if dockMonitor.isFullyFunctional {
-                    Label(L10n.permissionGranted, systemImage: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                } else {
-                    Label(L10n.permissionNotGranted, systemImage: "xmark.circle.fill")
-                        .foregroundColor(.red)
-                }
-                Spacer()
-            }
-
-            if !dockMonitor.isFullyFunctional {
-                HStack {
-                    Button(L10n.openSystemSettings) {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    Spacer()
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                Label(L10n.enabled, systemImage: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-
-                Text(L10n.runningDescription)
-                    .font(.caption)
+                Text(subtitle)
+                    .font(.system(size: 11))
                     .foregroundColor(.secondary)
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Divider()
+            Spacer()
 
-            Toggle(L10n.enableLogging, isOn: $loggingEnabled)
-                .help(L10n.enableLoggingHelp)
-
-            if loggingEnabled {
-                HStack {
-                    Text(L10n.logLocation)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-            }
-
-            Divider()
-
-            // 更新检查区域
-            VStack(alignment: .leading, spacing: 8) {
-                // 自动检查策略
-                HStack {
-                    Text(L10n.autoCheckPolicy)
-                        .font(.caption)
-                    Spacer()
-                    Picker("", selection: Binding(
-                        get: { updateService.checkPolicy },
-                        set: { updateService.checkPolicy = $0 }
-                    )) {
-                        ForEach(UpdateCheckPolicy.allCases, id: \.self) { policy in
-                            Text(policy.displayName).tag(policy)
-                        }
-                    }
-                    .frame(width: 90)
-                }
-
-                // 版本信息
-                HStack {
-                    Text(L10n.currentVersion)
-                        .font(.caption)
-                    Text(updateService.currentVersion)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-
-                if updateService.isChecking {
-                    HStack {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                        Text(L10n.checkingForUpdates)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                } else if updateService.updateAvailable {
-                    HStack {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .foregroundColor(.green)
-                        Text(L10n.updateAvailable)
-                            .font(.caption)
-                            .foregroundColor(.green)
-                        Spacer()
-                    }
-                    HStack {
-                        Text("\(L10n.latestVersion): \(updateService.latestVersion ?? "?")")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
-                } else if let error = updateService.errorMessage {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .lineLimit(2)
-                        Spacer()
-                    }
-                }
-
-                HStack {
-                    Button(L10n.checkNow) {
-                        Task {
-                            await updateService.checkForUpdates(force: true)
-                        }
-                    }
-                    .disabled(updateService.isChecking)
-
-                    if updateService.updateAvailable {
-                        Button(L10n.downloadUpdate) {
-                            updateService.openReleasePage()
-                        }
-                    }
-
-                    Spacer()
-
-                    Button(L10n.visitGitHub) {
-                        updateService.openGitHubPage()
-                    }
-                }
-            }
-
-            Divider()
-
-            HStack {
-                if loggingEnabled {
-                    Button(L10n.viewLogs) {
-                        LogService.shared.openLogFolder()
-                    }
-                }
-                Spacer()
-                Button(L10n.quitApp) {
-                    NSApplication.shared.terminate(nil)
-                }
-                .keyboardShortcut(.cancelAction)
-            }
+            trailing
         }
-        .padding()
-        .frame(width: 320)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
     }
 }
 
-#Preview {
-    SettingsView()
+// MARK: - Modern Settings View (macOS 27 Aesthetic)
+
+struct SettingsView: View {
+    @AppStorage("loggingEnabled") private var loggingEnabled = false
+    @AppStorage("showPanelOnLaunch") private var showPanelOnLaunch = false
+    @AppStorage("quitOnCloseButton") private var quitOnCloseButton = true
+    @StateObject private var launchAtLoginManager = LaunchAtLoginManager.shared
+    @StateObject private var dockMonitor = DockMonitor.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header Card
+            VStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.blue, Color.purple, Color.indigo],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 64, height: 64)
+                        .shadow(color: Color.blue.opacity(0.4), radius: 10, x: 0, y: 5)
+
+                    Image(systemName: "dock.rectangle")
+                        .font(.system(size: 30, weight: .medium))
+                        .foregroundColor(.white)
+                }
+                .padding(.top, 16)
+
+                VStack(spacing: 4) {
+                    Text("DockFlow")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+
+                    Text("Управление Доком и закрытие окон (⌘Q)")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+
+                // Status Pill
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 8, height: 8)
+                    Text("Работает в фоновом режиме")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(Color.green.opacity(0.12))
+                )
+            }
+            .padding(.bottom, 16)
+
+            // Content Sections
+            ScrollView {
+                VStack(spacing: 16) {
+                    // Section 1: Функции окон и Дока
+                    VStack(spacing: 0) {
+                        SettingRow(
+                            iconName: "sparkles",
+                            iconColor: .blue,
+                            title: "Эффект Джинна в Доке",
+                            subtitle: "Клик по иконке активного приложения в Доке плавно сворачивает его с анимацией"
+                        ) {
+                            Toggle("", isOn: .constant(true))
+                                .labelsHidden()
+                                .disabled(true)
+                        }
+
+                        Divider()
+                            .padding(.leading, 58)
+
+                        SettingRow(
+                            iconName: "xmark.circle.fill",
+                            iconColor: .red,
+                            title: "Полное закрытие по крестику (⌘Q)",
+                            subtitle: "Завершает приложение, когда закрывается его последнее окно. Вкладки сохраняются!"
+                        ) {
+                            Toggle("", isOn: $quitOnCloseButton)
+                                .labelsHidden()
+                        }
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(NSColor.controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
+
+                    // Section 2: Системные настройки
+                    VStack(spacing: 0) {
+                        SettingRow(
+                            iconName: "bolt.fill",
+                            iconColor: .green,
+                            title: "Запуск при входе в систему",
+                            subtitle: "Автоматически запускать DockMinimizer при включении Mac"
+                        ) {
+                            Toggle("", isOn: Binding(
+                                get: { launchAtLoginManager.isEnabled },
+                                set: { launchAtLoginManager.isEnabled = $0 }
+                            ))
+                            .labelsHidden()
+                        }
+
+                        Divider()
+                            .padding(.leading, 58)
+
+                        SettingRow(
+                            iconName: "macwindow",
+                            iconColor: .indigo,
+                            title: "Показывать окно при старте",
+                            subtitle: "Открывать это окно настроек при каждом запуске системы"
+                        ) {
+                            Toggle("", isOn: $showPanelOnLaunch)
+                                .labelsHidden()
+                        }
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(NSColor.controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
+
+                    // Section 3: Разрешение Универсального доступа
+                    VStack(spacing: 0) {
+                        SettingRow(
+                            iconName: "hand.raised.fill",
+                            iconColor: .purple,
+                            title: "Универсальный доступ",
+                            subtitle: dockMonitor.isFullyFunctional
+                                ? "Доступ предоставлен, все системные функции активны"
+                                : "Требуется разрешение для перехвата кликов по Доку"
+                        ) {
+                            if dockMonitor.isFullyFunctional {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .font(.system(size: 18))
+                            } else {
+                                Button("Настроить") {
+                                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                            }
+                        }
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(NSColor.controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
+                }
+                .padding(.horizontal, 20)
+            }
+
+            Divider()
+                .padding(.top, 12)
+
+            // Footer
+            HStack {
+                Text("DockFlow v1.3.0 • Fork of DockMinimizer")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Button("Закрыть") {
+                    NSApplication.shared.keyWindow?.close()
+                }
+                .controlSize(.small)
+                .keyboardShortcut(.cancelAction)
+
+                Button("Завершить") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .controlSize(.small)
+                .foregroundColor(.red)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
+        }
+        .frame(width: 440, height: 560)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
 }
 
-// MARK: - App
+// MARK: - App Main
 
 @main
 struct DockMinimizerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        WindowGroup(L10n.settingsWindowTitle, id: "settings") {
+        WindowGroup("DockFlow", id: "settings") {
             SettingsView()
         }
         .windowStyle(.automatic)
         .defaultPosition(.center)
-        .defaultSize(width: 320, height: 560)
+        .defaultSize(width: 440, height: 560)
         .commands {
-            // 隐藏默认的 Window 菜单项
             CommandGroup(replacing: .windowArrangement) { }
         }
         .defaultLaunchBehavior(.suppressed)
