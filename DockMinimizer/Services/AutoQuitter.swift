@@ -2,15 +2,12 @@ import Cocoa
 
 /// Автоматически завершает приложение (точь-в-точь как Command+Q),
 /// ТОЛЬКО если пользователь нажал на красный крестик закрытия окна.
-/// Исключает случайное закрытие свёрнутых или разворачиваемых из Дока приложений.
+/// Полностью реактивный: не использует постоянных фоновых таймеров и не нагружает процессор (0% CPU в фоне).
 class AutoQuitter: NSObject {
     static let shared = AutoQuitter()
 
-    private var timer: Timer?
     // Приложения, у которых был нажат красный крестик закрытия окна
     private var pendingClosePIDs = Set<pid_t>()
-    // Запоминаем приложения, у которых мы видели хотя бы одно открытое окно на экране
-    private var seenWithWindows = Set<pid_t>()
     private let lock = NSLock()
 
     private let excluded: Set<String> = [
@@ -30,21 +27,29 @@ class AutoQuitter: NSObject {
     /// Регистрирует, что пользователь нажал на красный крестик закрытия окна
     func armForClose(pid: pid_t) {
         lock.lock()
-        defer { lock.unlock() }
         pendingClosePIDs.insert(pid)
+        lock.unlock()
+
         LogService.shared.log(category: "AutoQuitter", message: "Приложение PID \(pid) ожидает закрытия (нажат красный крестик)")
+
+        // Точечные проверки только для данного приложения (без постоянного таймера)
+        scheduleTargetedCheck(for: pid, delay: 0.35)
+        scheduleTargetedCheck(for: pid, delay: 0.70)
+
+        // Автоматически снимаем с контроля через 1.5 секунды, если приложение не завершилось
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.disarmClose(pid: pid)
+        }
     }
 
-    /// Снимает приложение с контроля закрытия (если есть другие открытые окна)
+    /// Снимает приложение с контроля закрытия
     func disarmClose(pid: pid_t) {
         lock.lock()
-        defer { lock.unlock() }
         pendingClosePIDs.remove(pid)
+        lock.unlock()
     }
 
     func start() {
-        timer?.invalidate()
-
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(appDidDeactivate(_:)),
@@ -52,27 +57,35 @@ class AutoQuitter: NSObject {
             object: nil
         )
 
-        // Фоновый таймер: каждые 0.35 секунды проверяем приложения в очереди закрытия
-        let t = Timer(timeInterval: 0.35, repeats: true) { [weak self] _ in
-            self?.checkAllApps()
-        }
-        RunLoop.main.add(t, forMode: .common)
-        self.timer = t
-
-        LogService.shared.log(category: "AutoQuitter", message: "AutoQuitter запущен (контроль только при нажатии на красный крестик)")
+        LogService.shared.log(category: "AutoQuitter", message: "AutoQuitter запущен (реактивный режим, 0% CPU)")
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        lock.lock()
+        pendingClosePIDs.removeAll()
+        lock.unlock()
     }
 
     @objc private func appDidDeactivate(_ note: Notification) {
-        checkAllApps()
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        let pid = app.processIdentifier
+        lock.lock()
+        let isArmed = pendingClosePIDs.contains(pid)
+        lock.unlock()
+
+        if isArmed {
+            checkSingleApp(pid: pid)
+        }
     }
 
-    private func checkAllApps() {
+    private func scheduleTargetedCheck(for pid: pid_t, delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.checkSingleApp(pid: pid)
+        }
+    }
+
+    private func checkSingleApp(pid: pid_t) {
         guard AXIsProcessTrusted() else { return }
 
         let enabled = UserDefaults.standard.object(forKey: "quitOnCloseButton") == nil ||
@@ -80,61 +93,42 @@ class AutoQuitter: NSObject {
         guard enabled else { return }
 
         lock.lock()
-        let pidsToWatch = pendingClosePIDs
+        let isArmed = pendingClosePIDs.contains(pid)
         lock.unlock()
 
-        // Получаем список окон через CoreGraphics
-        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+        guard isArmed else { return }
+
+        guard let app = NSRunningApplication(processIdentifier: pid),
+              !app.isTerminated,
+              app.activationPolicy == .regular,
+              let bid = app.bundleIdentifier,
+              !excluded.contains(bid),
+              pid != ProcessInfo.processInfo.processIdentifier else {
+            disarmClose(pid: pid)
             return
         }
 
-        var pidWindowCounts: [pid_t: Int] = [:]
-        for win in windowList {
-            guard let ownerPID = win[kCGWindowOwnerPID as String] as? pid_t else { continue }
-            let layer = win[kCGWindowLayer as String] as? Int ?? -1
-            if layer == 0 {
-                let bounds = win[kCGWindowBounds as String] as? [String: Any] ?? [:]
-                let w = bounds["Width"] as? CGFloat ?? 0
-                let h = bounds["Height"] as? CGFloat ?? 0
-                if w > 100 && h > 100 {
-                    pidWindowCounts[ownerPID, default: 0] += 1
-                }
+        // Проверяем оставшиеся стандартные окна приложения через Accessibility API
+        autoreleasepool {
+            let axApp = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(axApp, 0.05)
+            var windowsVal: AnyObject?
+            _ = AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsVal)
+            let windows = (windowsVal as? [AXUIElement]) ?? []
+
+            let standardWindows = windows.filter { win in
+                var subVal: AnyObject?
+                AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subVal)
+                let sub = (subVal as? String) ?? ""
+                return sub == (kAXStandardWindowSubrole as String) || sub == ""
+            }
+
+            if standardWindows.isEmpty {
+                disarmClose(pid: pid)
+                let appName = app.localizedName ?? bid
+                LogService.shared.log(category: "AutoQuitter", message: "🔥 Окно закрыто крестиком, 0 окон у \(appName) (PID: \(pid)). Завершение (Command+Q)...")
+                app.terminate()
             }
         }
-
-        let runningApps = NSWorkspace.shared.runningApplications
-        var currentPids = Set<pid_t>()
-
-        for app in runningApps {
-            let pid = app.processIdentifier
-            currentPids.insert(pid)
-
-            guard app.activationPolicy == .regular,
-                  let bid = app.bundleIdentifier,
-                  !excluded.contains(bid),
-                  pid != ProcessInfo.processInfo.processIdentifier,
-                  app.isFinishedLaunching else {
-                continue
-            }
-
-            let visibleCount = pidWindowCounts[pid] ?? 0
-
-            if visibleCount > 0 {
-                seenWithWindows.insert(pid)
-            } else if visibleCount == 0 && seenWithWindows.contains(pid) {
-                // ВАЖНО: Завершаем ТОЛЬКО если пользователь нажимал красный крестик для этого приложения!
-                if pidsToWatch.contains(pid) {
-                    seenWithWindows.remove(pid)
-                    disarmClose(pid: pid)
-
-                    let appName = app.localizedName ?? bid
-                    LogService.shared.log(category: "AutoQuitter", message: "🔥 Окно закрыто крестиком, 0 видимых окон у \(appName) (PID: \(pid)). Завершение (Command+Q)...")
-
-                    app.terminate()
-                }
-            }
-        }
-
-        seenWithWindows.formIntersection(currentPids)
     }
 }

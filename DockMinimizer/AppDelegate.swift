@@ -40,10 +40,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Start AutoQuitter (Command + Q on closing last window)
         AutoQuitter.shared.start()
 
-        // 启动时根据设置决定是否打开设置窗口
-        // UserDefaults.bool returns false if key doesn't exist, but we want default true
+        // 启动时根据设置决定是否打开设置窗口 (по умолчанию false, чтобы приложение тихо работало в фоне)
         let hasKey = UserDefaults.standard.object(forKey: "showPanelOnLaunch") != nil
-        let showPanelOnLaunch = hasKey ? UserDefaults.standard.bool(forKey: "showPanelOnLaunch") : true
+        let showPanelOnLaunch = hasKey ? UserDefaults.standard.bool(forKey: "showPanelOnLaunch") : false
         if showPanelOnLaunch {
             openSettings()
         }

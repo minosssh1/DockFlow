@@ -57,6 +57,11 @@ class DockMonitor: ObservableObject {
     private var runLoopSource: CFRunLoopSource?
     private var permissionCheckTimer: Timer?
     private var lastPermissionState: Bool = false  // 记录上次权限状态，用于检测变化
+    private lazy var systemWideElement: AXUIElement = {
+        let sys = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(sys, 0.04)
+        return sys
+    }()
 
     /// 权限和功能是否完全可用
     @Published var isFullyFunctional: Bool = false
@@ -80,29 +85,26 @@ class DockMonitor: ObservableObject {
 
     private func startPermissionCheckTimer() {
         let trusted = AXIsProcessTrusted()
-        let interval: TimeInterval = trusted ? 5.0 : 1.0
-        permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.checkPermissionState()
-        }
         lastPermissionState = trusted
-        checkPermissionState()
-        LogService.shared.log(category: "DockMonitor", message: "[定时器] 已启动，间隔 \(interval) 秒，权限信任: \(trusted ? "是" : "否")")
+        adjustTimerInterval()
+        checkPermissionState(isInitial: true)
     }
 
-    private func checkPermissionState() {
+    private func checkPermissionState(isInitial: Bool = false) {
         let trusted = AXIsProcessTrusted()
-        let apiWorking = isAccessibilityActuallyWorking()
-        LogService.shared.log(category: "DockMonitor", message: "[定时器检查] AXIsProcessTrusted: \(trusted ? "是" : "否"), API实际可用: \(apiWorking ? "是" : "否"), eventTap: \(eventTap != nil ? "存在" : "不存在")")
 
         // 只要系统信任此进程，并且 eventTap 正常建立，功能即视为可用
         isFullyFunctional = trusted && (eventTap != nil)
 
         // 检测系统权限状态变化（基于 AXIsProcessTrusted，避免因 Dock 繁忙引发误判）
-        if trusted != lastPermissionState {
-            if trusted {
-                sendNotification(title: L10n.permissionGrantedNotificationTitle, body: L10n.permissionGrantedNotificationBody)
-            } else {
-                sendNotification(title: L10n.permissionRevoked, body: L10n.permissionRevokedMessage)
+        if trusted != lastPermissionState || isInitial {
+            if !isInitial {
+                LogService.shared.log(category: "DockMonitor", message: "[Изменение прав] AXIsProcessTrusted: \(lastPermissionState ? "Да" : "Нет") -> \(trusted ? "Да" : "Нет")")
+                if trusted {
+                    sendNotification(title: L10n.permissionGrantedNotificationTitle, body: L10n.permissionGrantedNotificationBody)
+                } else {
+                    sendNotification(title: L10n.permissionRevoked, body: L10n.permissionRevokedMessage)
+                }
             }
             lastPermissionState = trusted
             adjustTimerInterval()
@@ -110,15 +112,15 @@ class DockMonitor: ObservableObject {
 
         if trusted {
             if eventTap == nil {
-                LogService.shared.log(category: "DockMonitor", message: "[定时器检查] 权限正常，尝试启动 eventTap")
+                LogService.shared.log(category: "DockMonitor", message: "[DockMonitor] Права получены, запускаем eventTap")
                 tryStartEventTap()
             } else if let tap = eventTap, !CGEvent.tapIsEnabled(tap: tap) {
-                LogService.shared.log(category: "DockMonitor", message: "[定时器检查] 权限正常但 eventTap 被禁用，重新启用")
+                LogService.shared.log(category: "DockMonitor", message: "[DockMonitor] eventTap был отключен системой, активируем обратно")
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
         } else if eventTap != nil {
             // 系统权限真正被撤销时才停止 eventTap
-            LogService.shared.log(level: .warning, category: "DockMonitor", message: "[定时器检查] 系统权限已撤销，停止 eventTap")
+            LogService.shared.log(level: .warning, category: "DockMonitor", message: "[DockMonitor] Права отозваны, останавливаем eventTap")
             stopEventTap()
         }
     }
@@ -140,11 +142,15 @@ class DockMonitor: ObservableObject {
 
     private func adjustTimerInterval() {
         permissionCheckTimer?.invalidate()
-        let interval: TimeInterval = lastPermissionState ? 5.0 : 1.0
-        permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        // Если права уже выданы, проверяем редко (раз в 60 сек с tolerance 15 сек для энергосбережения macOS)
+        // Если права не выданы, опрашиваем раз в 1.5 сек для быстрого реагирования на переключатель в Настройках
+        let interval: TimeInterval = lastPermissionState ? 60.0 : 1.5
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             self?.checkPermissionState()
         }
-        LogService.shared.log(category: "DockMonitor", message: "[定时器] 间隔调整为 \(interval) 秒")
+        timer.tolerance = lastPermissionState ? 15.0 : 0.5
+        RunLoop.main.add(timer, forMode: .common)
+        permissionCheckTimer = timer
     }
 
     private func stopEventTap() {
@@ -316,10 +322,8 @@ class DockMonitor: ObservableObject {
     }
 
     private func handleCloseButtonClick(at location: CGPoint) -> Bool {
-        let sys = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(sys, 0.04)
         var hitElem: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(sys, Float(location.x), Float(location.y), &hitElem) == .success,
+        guard AXUIElementCopyElementAtPosition(systemWideElement, Float(location.x), Float(location.y), &hitElem) == .success,
               let element = hitElem else {
             return false
         }
@@ -413,49 +417,51 @@ class DockMonitor: ObservableObject {
     func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Bool {
         guard type == .leftMouseDown else { return false }
 
-        let location = event.location
-        let mainScreenID = CGMainDisplayID()
-        let displayBounds = CGDisplayBounds(mainScreenID)
-        let screenHeight = displayBounds.height
+        return autoreleasepool {
+            let location = event.location
+            let mainScreenID = CGMainDisplayID()
+            let displayBounds = CGDisplayBounds(mainScreenID)
+            let screenHeight = displayBounds.height
 
-        let dockHeight: CGFloat = 140
+            let dockHeight: CGFloat = 140
 
-        // 1. Проверяем клик по Доку (для сворачивания / разворачивания с Джином)
-        if location.y >= screenHeight - dockHeight {
-            guard let appInfo = getAppInfoAtDockLocation(location) else { return false }
-            guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
+            // 1. Проверяем клик по Доку (для сворачивания / разворачивания с Джином)
+            if location.y >= screenHeight - dockHeight {
+                guard let appInfo = getAppInfoAtDockLocation(location) else { return false }
+                guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
 
-            var isMatch = false
-            if let urlStr = appInfo.urlString, let itemURL = URL(string: urlStr), let frontURL = frontApp.bundleURL {
-                if itemURL.standardizedFileURL == frontURL.standardizedFileURL {
-                    isMatch = true
+                var isMatch = false
+                if let urlStr = appInfo.urlString, let itemURL = URL(string: urlStr), let frontURL = frontApp.bundleURL {
+                    if itemURL.standardizedFileURL == frontURL.standardizedFileURL {
+                        isMatch = true
+                    }
+                }
+
+                if !isMatch, let frontmostName = currentFrontmostName {
+                    let clicked = appInfo.title.lowercased()
+                    let front = frontmostName.lowercased()
+                    if clicked == front || clicked.contains(front) || front.contains(clicked) {
+                        isMatch = true
+                    }
+                }
+
+                guard isMatch else { return false }
+
+                LogService.shared.log(category: "DockMonitor", message: "Клик по иконке Дока: \(appInfo.title)")
+
+                let shouldConsume = WindowMinimizer.shared.toggleMinimization(app: frontApp)
+                return shouldConsume
+            }
+
+            // 2. Проверяем клик по красному крестику (полное закрытие через Cmd+Q)
+            let quitOnClose = UserDefaults.standard.object(forKey: "quitOnCloseButton") == nil || UserDefaults.standard.bool(forKey: "quitOnCloseButton")
+            if quitOnClose {
+                if handleCloseButtonClick(at: location) {
+                    return true
                 }
             }
 
-            if !isMatch, let frontmostName = currentFrontmostName {
-                let clicked = appInfo.title.lowercased()
-                let front = frontmostName.lowercased()
-                if clicked == front || clicked.contains(front) || front.contains(clicked) {
-                    isMatch = true
-                }
-            }
-
-            guard isMatch else { return false }
-
-            LogService.shared.log(category: "DockMonitor", message: "点击 Dock 图标: \(appInfo.title)")
-
-            let shouldConsume = WindowMinimizer.shared.toggleMinimization(app: frontApp)
-            return shouldConsume
+            return false
         }
-
-        // 2. Проверяем клик по красному крестику (полное закрытие через Cmd+Q)
-        let quitOnClose = UserDefaults.standard.object(forKey: "quitOnCloseButton") == nil || UserDefaults.standard.bool(forKey: "quitOnCloseButton")
-        if quitOnClose {
-            if handleCloseButtonClick(at: location) {
-                return true
-            }
-        }
-
-        return false
     }
 }
