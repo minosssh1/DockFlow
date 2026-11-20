@@ -12,9 +12,13 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshots/settings_main.png" width="420" alt="DockFlow Настройки" />
+  <img src="assets/demo.gif" width="600" alt="DockFlow Demo" />
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/settings_main.png" width="400" alt="DockFlow Настройки" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="assets/screenshots/settings_exclusions.png" width="440" alt="DockFlow Исключения закрытия" />
+  <img src="assets/screenshots/settings_exclusions.png" width="420" alt="DockFlow Исключения закрытия" />
 </p>
 
 > 🔱 **О проекте и авторстве:**  
