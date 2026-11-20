@@ -195,6 +195,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func showUpdateAvailableAlert() {
+        LogService.shared.log(category: "UpdateService", message: "Отображение диалога обновления: доступна версия \(updateService.latestVersion ?? "?")")
+        NSApplication.shared.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Доступно обновление DockFlow!"
         alert.informativeText = "Текущая версия: \(updateService.currentVersion)\nНовая версия: \(updateService.latestVersion ?? "?")\n\nХотите установить обновление сейчас?"
@@ -213,6 +215,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
+        NSApplication.shared.activate(ignoringOtherApps: true)
         let progressAlert = NSAlert()
         progressAlert.messageText = "Обновление DockFlow"
         progressAlert.informativeText = "Загрузка новой версии \(updateService.latestVersion ?? "")...\nПриложение обновится и перезапустится автоматически."
