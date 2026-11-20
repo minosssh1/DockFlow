@@ -1,6 +1,7 @@
 import Cocoa
 import SwiftUI
 import Combine
+import os
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var statusItem: NSStatusItem?
@@ -49,6 +50,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000) // 延迟 2 秒
             await updateService.checkForUpdates()
+            if updateService.updateAvailable {
+                await MainActor.run {
+                    self.showUpdateAvailableAlert()
+                }
+            }
         }
 
         // 监听更新状态变化
@@ -188,22 +194,95 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         LogService.shared.openLogFolder()
     }
 
+    private func showUpdateAvailableAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Доступно обновление DockFlow!"
+        alert.informativeText = "Текущая версия: \(updateService.currentVersion)\nНовая версия: \(updateService.latestVersion ?? "?")\n\nХотите установить обновление сейчас?"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Обновить сейчас")
+        alert.addButton(withTitle: "Позже")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            performAutoUpdate()
+        }
+    }
+
+    private func performAutoUpdate() {
+        guard let downloadURL = updateService.downloadURL else {
+            updateService.openReleasePage()
+            return
+        }
+
+        let progressAlert = NSAlert()
+        progressAlert.messageText = "Обновление DockFlow"
+        progressAlert.informativeText = "Загрузка новой версии \(updateService.latestVersion ?? "")...\nПриложение обновится и перезапустится автоматически."
+        progressAlert.alertStyle = .informational
+
+        let indicator = NSProgressIndicator(frame: NSRect(x: 0, y: 0, width: 280, height: 20))
+        indicator.isIndeterminate = true
+        indicator.startAnimation(nil)
+        progressAlert.accessoryView = indicator
+        progressAlert.addButton(withTitle: "Отмена")
+
+        let isCancelled = OSAllocatedUnfairLock(initialState: false)
+        let downloadTask = URLSession.shared.downloadTask(with: downloadURL) { [weak self] localURL, response, error in
+            if isCancelled.withLock({ $0 }) { return }
+
+            if let error = error {
+                if (error as NSError).code == NSURLErrorCancelled { return }
+                DispatchQueue.main.async {
+                    NSApp.stopModal()
+                    let errAlert = NSAlert()
+                    errAlert.messageText = "Ошибка загрузки обновления"
+                    errAlert.informativeText = error.localizedDescription
+                    errAlert.alertStyle = .warning
+                    errAlert.addButton(withTitle: "Открыть страницу релиза")
+                    errAlert.addButton(withTitle: "ОК")
+                    if errAlert.runModal() == .alertFirstButtonReturn {
+                        self?.updateService.openReleasePage()
+                    }
+                }
+                return
+            }
+
+            guard let localURL = localURL else { return }
+            let tempDMG = "/tmp/DockFlow_Update.dmg"
+            try? FileManager.default.removeItem(atPath: tempDMG)
+            do {
+                try FileManager.default.copyItem(at: localURL, to: URL(fileURLWithPath: tempDMG))
+            } catch {
+                DispatchQueue.main.async {
+                    NSApp.stopModal()
+                    let errAlert = NSAlert()
+                    errAlert.messageText = "Ошибка сохранения обновления"
+                    errAlert.informativeText = error.localizedDescription
+                    errAlert.alertStyle = .warning
+                    errAlert.addButton(withTitle: "ОК")
+                    errAlert.runModal()
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                NSApp.stopModal()
+                self?.updateService.applyUpdateAndRestart(dmgPath: tempDMG)
+            }
+        }
+        downloadTask.resume()
+
+        if progressAlert.runModal() == .alertFirstButtonReturn {
+            isCancelled.withLock { $0 = true }
+            downloadTask.cancel()
+        }
+    }
+
     @objc private func checkForUpdates() {
         Task {
             await updateService.checkForUpdates(force: true)
 
             await MainActor.run {
                 if updateService.updateAvailable {
-                    let alert = NSAlert()
-                    alert.messageText = L10n.updateAvailable
-                    alert.informativeText = "\(L10n.currentVersion): \(updateService.currentVersion)\n\(L10n.latestVersion): \(updateService.latestVersion ?? "?")"
-                    alert.alertStyle = .informational
-                    alert.addButton(withTitle: L10n.downloadUpdate)
-                    alert.addButton(withTitle: L10n.ok)
-
-                    if alert.runModal() == .alertFirstButtonReturn {
-                        updateService.openReleasePage()
-                    }
+                    self.showUpdateAvailableAlert()
                 } else if let error = updateService.errorMessage {
                     let alert = NSAlert()
                     alert.messageText = L10n.updateError

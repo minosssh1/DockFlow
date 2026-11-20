@@ -36,6 +36,17 @@ enum UpdateCheckPolicy: String, CaseIterable {
     }
 }
 
+/// GitHub Asset 数据模型
+struct GitHubAsset: Codable {
+    let name: String
+    let browserDownloadUrl: String
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case browserDownloadUrl = "browser_download_url"
+    }
+}
+
 /// GitHub Release 数据模型
 struct GitHubRelease: Codable {
     let tagName: String
@@ -43,6 +54,7 @@ struct GitHubRelease: Codable {
     let name: String?
     let body: String?
     let publishedAt: String?
+    let assets: [GitHubAsset]?
 
     enum CodingKeys: String, CodingKey {
         case tagName = "tag_name"
@@ -50,6 +62,7 @@ struct GitHubRelease: Codable {
         case name
         case body
         case publishedAt = "published_at"
+        case assets
     }
 }
 
@@ -70,6 +83,9 @@ class UpdateService: ObservableObject {
 
     /// Release 页面 URL
     @Published var releaseURL: URL?
+
+    /// 最新 DMG 下载直链
+    @Published var downloadURL: URL?
 
     /// 错误信息
     @Published var errorMessage: String?
@@ -158,10 +174,20 @@ class UpdateService: ObservableObject {
 
             let hasUpdate = isNewerVersion(latestVersionClean, than: currentVersion)
 
+            // 查找 Release 附件中的 DMG 下载链接
+            var foundDmgURL: URL? = nil
+            if let assets = release.assets {
+                if let dmgAsset = assets.first(where: { $0.name.hasSuffix(".dmg") }) {
+                    foundDmgURL = URL(string: dmgAsset.browserDownloadUrl)
+                }
+            }
+            let finalDmgURL = foundDmgURL
+
             await MainActor.run {
                 self.latestVersion = latestVersionClean
                 self.updateAvailable = hasUpdate
                 self.releaseURL = URL(string: release.htmlUrl)
+                self.downloadURL = finalDmgURL
                 self.isChecking = false
 
                 // 记录检查时间
@@ -199,6 +225,60 @@ class UpdateService: ObservableObject {
         if let url = URL(string: "https://github.com/\(githubOwner)/\(githubRepo)") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// 执行就地自动升级并重启应用
+    func applyUpdateAndRestart(dmgPath: String) {
+        LogService.shared.log(category: "UpdateService", message: "启动自动更新安装程序，DMG: \(dmgPath)")
+        let scriptPath = "/tmp/dockflow_auto_updater.sh"
+        let scriptContent = """
+        #!/bin/bash
+        set -e
+        DMG_PATH="$1"
+        CALLER_PID="$2"
+        TARGET_APP="/Applications/DockFlow.app"
+        MOUNT_DIR="/tmp/dockflow_update_mount"
+
+        # Ожидаем завершения предыдущего процесса
+        if [ -n "$CALLER_PID" ]; then
+            while kill -0 "$CALLER_PID" 2>/dev/null; do
+                sleep 0.2
+            done
+        fi
+
+        # Подготавливаем точку монтирования
+        hdiutil detach "$MOUNT_DIR" -force 2>/dev/null || true
+        rm -rf "$MOUNT_DIR"
+        mkdir -p "$MOUNT_DIR"
+
+        # Монтируем DMG
+        hdiutil attach "$DMG_PATH" -nobrowse -mountpoint "$MOUNT_DIR" -readonly
+
+        # Копируем новую версию приложения
+        if [ -d "$MOUNT_DIR/DockFlow.app" ]; then
+            rm -rf "$TARGET_APP"
+            cp -R "$MOUNT_DIR/DockFlow.app" "$TARGET_APP"
+            codesign --force --deep -s - -r="designated => identifier \\\"com.jacktony.dockminimizer\\\"" "$TARGET_APP" 2>/dev/null || true
+        fi
+
+        # Отмонтируем и удаляем временные файлы
+        hdiutil detach "$MOUNT_DIR" -force 2>/dev/null || true
+        rm -rf "$MOUNT_DIR" "$DMG_PATH" "$0"
+
+        # Запускаем обновленное приложение
+        open "$TARGET_APP"
+        """
+
+        try? scriptContent.write(to: URL(fileURLWithPath: scriptPath), atomically: true, encoding: .utf8)
+        let _ = chmod(scriptPath, 0o755)
+
+        let currentPID = String(ProcessInfo.processInfo.processIdentifier)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [scriptPath, dmgPath, currentPID]
+        try? process.run()
+
+        NSApplication.shared.terminate(nil)
     }
 
     // MARK: - Private Methods
