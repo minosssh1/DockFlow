@@ -34,7 +34,7 @@ struct DrawUtils {
         ctx.drawLinearGradient(gradient, start: CGPoint(x: rect.midX, y: rect.maxY), end: CGPoint(x: rect.midX, y: rect.minY), options: [])
 
         let spotColors = [
-            NSColor(red: 0.25, green: 0.35, blue: 0.70, alpha: 0.20).cgColor,
+            NSColor(red: 0.25, green: 0.35, blue: 0.70, alpha: 0.22).cgColor,
             NSColor(red: 0.15, green: 0.20, blue: 0.40, alpha: 0.0).cgColor
         ] as CFArray
         let spotGradient = CGGradient(colorsSpace: colorSpace, colors: spotColors, locations: [0.0, 1.0])!
@@ -54,7 +54,7 @@ struct DrawUtils {
 
     static func drawHeader(ctx: CGContext, width: CGFloat, topY: CGFloat, title: String, subtitle: String) {
         let iconRect = CGRect(x: width / 2 - 15, y: topY - 14, width: 30, height: 30)
-        let iconPath = CGPath(roundedRect: iconRect, cornerWidth: 7, cornerHeight: 7, transform: nil)
+        let iconPath = CGPath(roundedRect: iconRect, cornerWidth: 7.5, cornerHeight: 7.5, transform: nil)
         ctx.saveGState()
         ctx.addPath(iconPath)
         ctx.clip()
@@ -76,7 +76,7 @@ struct DrawUtils {
         ctx.restoreGState()
 
         drawText(ctx: ctx, text: title, point: CGPoint(x: width / 2, y: topY - 33), font: NSFont.systemFont(ofSize: 20, weight: .bold), color: .white, alignCenter: true)
-        drawText(ctx: ctx, text: subtitle, point: CGPoint(x: width / 2, y: topY - 50), font: NSFont.systemFont(ofSize: 12.5, weight: .medium), color: NSColor(white: 0.70, alpha: 1.0), alignCenter: true)
+        drawText(ctx: ctx, text: subtitle, point: CGPoint(x: width / 2, y: topY - 50), font: NSFont.systemFont(ofSize: 12.5, weight: .medium), color: NSColor(white: 0.72, alpha: 1.0), alignCenter: true)
     }
 
     static func drawWindow(ctx: CGContext, rect: CGRect, title: String, scale: CGFloat = 1.0, alpha: CGFloat = 1.0, hoverClose: Bool = false) {
@@ -90,19 +90,22 @@ struct DrawUtils {
         ctx.translateBy(x: -midX, y: -midY)
         ctx.setAlpha(alpha)
 
+        // Drop shadow
         ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 24, color: NSColor(white: 0, alpha: 0.50).cgColor)
+        ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 24, color: NSColor(white: 0, alpha: 0.55).cgColor)
         let winPath = CGPath(roundedRect: rect, cornerWidth: 10, cornerHeight: 10, transform: nil)
         ctx.setFillColor(NSColor(red: 0.13, green: 0.14, blue: 0.18, alpha: 0.98).cgColor)
         ctx.addPath(winPath)
         ctx.fillPath()
         ctx.restoreGState()
 
-        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.14).cgColor)
+        // Border
+        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.15).cgColor)
         ctx.setLineWidth(1)
         ctx.addPath(winPath)
         ctx.strokePath()
 
+        // Titlebar
         let titlebarRect = CGRect(x: rect.minX, y: rect.maxY - 28, width: rect.width, height: 28)
         ctx.saveGState()
         let clipPath = CGPath(roundedRect: rect, cornerWidth: 10, cornerHeight: 10, transform: nil)
@@ -111,13 +114,14 @@ struct DrawUtils {
         ctx.setFillColor(NSColor(red: 0.17, green: 0.18, blue: 0.23, alpha: 1.0).cgColor)
         ctx.fill(titlebarRect)
 
-        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.06).cgColor)
+        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.08).cgColor)
         ctx.setLineWidth(1)
         ctx.move(to: CGPoint(x: rect.minX, y: rect.maxY - 28))
         ctx.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - 28))
         ctx.strokePath()
         ctx.restoreGState()
 
+        // Traffic lights
         let tlY = rect.maxY - 14
         let redCenter = CGPoint(x: rect.minX + 16, y: tlY)
         let yellowCenter = CGPoint(x: rect.minX + 32, y: tlY)
@@ -140,7 +144,7 @@ struct DrawUtils {
         ctx.setFillColor(NSColor(red: 0.16, green: 0.78, blue: 0.25, alpha: 1.0).cgColor)
         ctx.fillEllipse(in: CGRect(x: greenCenter.x - 5.5, y: greenCenter.y - 5.5, width: 11, height: 11))
 
-        drawText(ctx: ctx, text: title, point: CGPoint(x: rect.midX, y: tlY - 5.5), font: NSFont.systemFont(ofSize: 11, weight: .medium), color: NSColor(white: 0.7, alpha: 1.0), alignCenter: true)
+        drawText(ctx: ctx, text: title, point: CGPoint(x: rect.midX, y: tlY - 5.5), font: NSFont.systemFont(ofSize: 11, weight: .medium), color: NSColor(white: 0.75, alpha: 1.0), alignCenter: true)
 
         let bodyTop = rect.maxY - 42
         let barColors: [(CGFloat, CGFloat)] = [(0.6, 0.75), (0.4, 0.55), (0.5, 0.65), (0.3, 0.45)]
@@ -162,7 +166,7 @@ struct DrawUtils {
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -4), blur: 18, color: NSColor(white: 0, alpha: 0.55).cgColor)
         let dockPath = CGPath(roundedRect: dockRect, cornerWidth: 16, cornerHeight: 16, transform: nil)
-        ctx.setFillColor(NSColor(red: 0.12, green: 0.13, blue: 0.18, alpha: 0.88).cgColor)
+        ctx.setFillColor(NSColor(red: 0.12, green: 0.13, blue: 0.18, alpha: 0.90).cgColor)
         ctx.addPath(dockPath)
         ctx.fillPath()
         ctx.restoreGState()
@@ -249,7 +253,7 @@ struct DrawUtils {
     static func drawCursor(ctx: CGContext, at: CGPoint, isClicking: Bool) {
         ctx.saveGState()
         if isClicking {
-            ctx.setStrokeColor(NSColor(red: 0.4, green: 0.75, blue: 1.0, alpha: 0.7).cgColor)
+            ctx.setStrokeColor(NSColor(red: 0.4, green: 0.75, blue: 1.0, alpha: 0.75).cgColor)
             ctx.setLineWidth(2.2)
             ctx.strokeEllipse(in: CGRect(x: at.x - 14, y: at.y - 14, width: 28, height: 28))
         }
@@ -283,7 +287,7 @@ struct DrawUtils {
         path.addQuadCurve(to: to, control: CGPoint(x: ctrlX, y: ctrlY))
 
         let dashes: [CGFloat] = [5, 4]
-        ctx.setLineDash(phase: -progress * 18, lengths: dashes)
+        ctx.setLineDash(phase: -progress * 24, lengths: dashes)
         ctx.setStrokeColor(NSColor(red: 0.45, green: 0.70, blue: 1.0, alpha: 0.75).cgColor)
         ctx.setLineWidth(2.2)
         ctx.addPath(path)
@@ -292,12 +296,16 @@ struct DrawUtils {
     }
 }
 
-// MARK: - GIF 1 Generator: Dock Minimize & Restore
+// MARK: - GIF 1 Generator: Dock Minimize & Restore (60 FPS / 50 FPS Ultra-Smooth Retina)
 func generateDockMinimizeGIF(outputPath: String, lang: Language) {
-    let width = 780
-    let height = 440
-    let frameCount = 36
-    let delay = 0.08
+    let ptWidth: CGFloat = 780
+    let ptHeight: CGFloat = 440
+    let scale: CGFloat = 2.0 // 2x Retina!
+    let pxWidth = Int(ptWidth * scale)
+    let pxHeight = Int(ptHeight * scale)
+    
+    let frameCount = 120 // 120 frames at 0.02s delay = 2.4s silky smooth loop
+    let delay = 0.02
     
     let url = URL(fileURLWithPath: outputPath)
     guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, frameCount, nil) else {
@@ -314,7 +322,8 @@ func generateDockMinimizeGIF(outputPath: String, lang: Language) {
 
     let frameProps: [String: Any] = [
         kCGImagePropertyGIFDictionary as String: [
-            kCGImagePropertyGIFDelayTime as String: delay
+            kCGImagePropertyGIFDelayTime as String: delay,
+            kCGImagePropertyGIFUnclampedDelayTime as String: delay
         ]
     ]
 
@@ -332,22 +341,23 @@ func generateDockMinimizeGIF(outputPath: String, lang: Language) {
         : "Notes — Application"
 
     for frame in 0..<frameCount {
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pxWidth, pixelsHigh: pxHeight, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         let ctx = NSGraphicsContext.current!.cgContext
+        ctx.scaleBy(x: scale, y: scale) // Native 2x Retina rendering!
 
-        let fullRect = CGRect(x: 0, y: 0, width: width, height: height)
+        let fullRect = CGRect(x: 0, y: 0, width: ptWidth, height: ptHeight)
         DrawUtils.drawBackground(ctx: ctx, rect: fullRect)
 
-        DrawUtils.drawHeader(ctx: ctx, width: CGFloat(width), topY: CGFloat(height - 18), title: "DockFlow", subtitle: subtitle)
+        DrawUtils.drawHeader(ctx: ctx, width: ptWidth, topY: ptHeight - 18, title: "DockFlow", subtitle: subtitle)
 
         let cardW: CGFloat = 355
         let cardH: CGFloat = 320
         let cardY: CGFloat = 35
 
         let leftCardRect = CGRect(x: 22, y: cardY, width: cardW, height: cardH)
-        let rightCardRect = CGRect(x: CGFloat(width) - cardW - 22, y: cardY, width: cardW, height: cardH)
+        let rightCardRect = CGRect(x: ptWidth - cardW - 22, y: cardY, width: cardW, height: cardH)
 
         for cardRect in [leftCardRect, rightCardRect] {
             ctx.saveGState()
@@ -470,12 +480,16 @@ func generateDockMinimizeGIF(outputPath: String, lang: Language) {
     }
 }
 
-// MARK: - GIF 2 Generator: Quit on Close Button
+// MARK: - GIF 2 Generator: Quit on Close Button (60 FPS / 50 FPS Ultra-Smooth Retina)
 func generateQuitOnCloseGIF(outputPath: String, lang: Language) {
-    let width = 780
-    let height = 440
-    let frameCount = 36
-    let delay = 0.08
+    let ptWidth: CGFloat = 780
+    let ptHeight: CGFloat = 440
+    let scale: CGFloat = 2.0 // 2x Retina!
+    let pxWidth = Int(ptWidth * scale)
+    let pxHeight = Int(ptHeight * scale)
+    
+    let frameCount = 120
+    let delay = 0.02
     
     let url = URL(fileURLWithPath: outputPath)
     guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, frameCount, nil) else {
@@ -492,7 +506,8 @@ func generateQuitOnCloseGIF(outputPath: String, lang: Language) {
 
     let frameProps: [String: Any] = [
         kCGImagePropertyGIFDictionary as String: [
-            kCGImagePropertyGIFDelayTime as String: delay
+            kCGImagePropertyGIFDelayTime as String: delay,
+            kCGImagePropertyGIFUnclampedDelayTime as String: delay
         ]
     ]
 
@@ -519,22 +534,23 @@ func generateQuitOnCloseGIF(outputPath: String, lang: Language) {
         : "Safari — Browser"
 
     for frame in 0..<frameCount {
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pxWidth, pixelsHigh: pxHeight, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         let ctx = NSGraphicsContext.current!.cgContext
+        ctx.scaleBy(x: scale, y: scale)
 
-        let fullRect = CGRect(x: 0, y: 0, width: width, height: height)
+        let fullRect = CGRect(x: 0, y: 0, width: ptWidth, height: ptHeight)
         DrawUtils.drawBackground(ctx: ctx, rect: fullRect)
 
-        DrawUtils.drawHeader(ctx: ctx, width: CGFloat(width), topY: CGFloat(height - 18), title: "DockFlow", subtitle: subtitle)
+        DrawUtils.drawHeader(ctx: ctx, width: ptWidth, topY: ptHeight - 18, title: "DockFlow", subtitle: subtitle)
 
         let cardW: CGFloat = 355
         let cardH: CGFloat = 320
         let cardY: CGFloat = 35
 
         let leftCardRect = CGRect(x: 22, y: cardY, width: cardW, height: cardH)
-        let rightCardRect = CGRect(x: CGFloat(width) - cardW - 22, y: cardY, width: cardW, height: cardH)
+        let rightCardRect = CGRect(x: ptWidth - cardW - 22, y: cardY, width: cardW, height: cardH)
 
         for (cardRect, isDockFlow) in [(leftCardRect, false), (rightCardRect, true)] {
             ctx.saveGState()
@@ -662,10 +678,11 @@ func generateQuitOnCloseGIF(outputPath: String, lang: Language) {
 // MARK: - Main Execution
 let assetsDir = "/Users/minosssh1./.gemini/antigravity/scratch/DockMinimizer/assets"
 
-// Generate Russian GIFs
+print("Rendering Russian 60/50 FPS 2x Retina GIFs...")
 generateDockMinimizeGIF(outputPath: "\(assetsDir)/demo_dock_minimize_ru.gif", lang: .ru)
 generateQuitOnCloseGIF(outputPath: "\(assetsDir)/demo_quit_on_close_ru.gif", lang: .ru)
 
-// Generate English GIFs
+print("Rendering English 60/50 FPS 2x Retina GIFs...")
 generateDockMinimizeGIF(outputPath: "\(assetsDir)/demo_dock_minimize_en.gif", lang: .en)
 generateQuitOnCloseGIF(outputPath: "\(assetsDir)/demo_quit_on_close_en.gif", lang: .en)
+print("All 4 Ultra-HD 60/50 FPS GIFs completed!")
