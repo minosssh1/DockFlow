@@ -18,12 +18,10 @@
 ---
 
 <p align="center">
-  <a href="#русский"><b>🇷🇺 Русский</b></a> &nbsp;&nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp;&nbsp; <a href="#english"><b>🇺🇸 English</b></a>
+  <b>🇷🇺 Русский</b> &nbsp;&nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp;&nbsp; <a href="README_en.md"><b>🇺🇸 English</b></a>
 </p>
 
 ---
-
-## Русский
 
 <p align="center">
   <img src="assets/demo_dock_minimize_ru.gif" width="720" alt="DockFlow Сворачивание и разворачивание" />
@@ -82,45 +80,6 @@
 
 ---
 
-<br/>
+### 📄 Лицензия
 
-## English
-
-### 📌 About DockFlow
-
-**DockFlow** is a native, ultra-lightweight window & dock enhancer for macOS that combines macOS elegance with Windows taskbar agility:
-1. Clicking an active app's Dock icon smoothly minimizes it into the Dock with the native **Genie effect** and restores it on subsequent clicks.
-2. Clicking the red close button completely quits the application (like `⌘ + Q`) while preserving browser tabs and window sessions.
-3. Exclude background apps (Telegram, Discord, Spotify) so they stay active when closed.
-4. Middle-click any Dock icon to trigger quick actions like opening a **New Window (⌘N)**.
-5. Zero idle CPU usage (**0.0%**) and full support for macOS App Nap and battery sleep states.
-6. Multilingual interface: English, Russian (Русский), Simplified Chinese (简体中文), and Ukrainian (Українська) with real-time in-app switching.
-
-<p align="center">
-  <img src="assets/demo_dock_minimize_en.gif" width="720" alt="DockFlow Genie Minimize & Restore" />
-</p>
-
-<p align="center">
-  <img src="assets/demo_quit_on_close_en.gif" width="720" alt="DockFlow Quit on Close Button" />
-</p>
-
-<p align="center">
-  <details>
-    <summary><b>📸 Screenshots (Settings Window & Exclusions Sheet)</b></summary>
-    <br/>
-    <p align="center">
-      <img src="assets/screenshots/settings_main.png" width="380" alt="DockFlow Settings Window" />
-      &nbsp;&nbsp;&nbsp;&nbsp;
-      <img src="assets/screenshots/settings_exclusions.png" width="400" alt="DockFlow Exclusions Sheet" />
-    </p>
-  </details>
-</p>
-
-> 🔱 **Attribution:**  
-> This project is an advanced fork of **[DockMinimizer](https://github.com/JackTonyMa/DockMinimizer)** by *JackTonyMa*, significantly expanded with native Genie animations, CoreGraphics zero-window auto-termination, app exclusions whitelist, Middle-Click gestures, Force Touch haptic feedback, OTA auto-updater, and zero-overhead performance optimizations.
-
----
-
-### 📄 License
-
-Distributed under the **MIT License**. Original work Copyright © 2025 JackTonyMa. Fork enhancements Copyright © 2026.
+Распространяется под лицензией **MIT**. Оригинальный проект Copyright © 2025 JackTonyMa. Улучшения форка Copyright © 2026.
