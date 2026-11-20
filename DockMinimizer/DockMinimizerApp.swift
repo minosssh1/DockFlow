@@ -260,7 +260,7 @@ struct SettingsView: View {
 
             // Footer
             HStack {
-                Text("DockFlow v1.0.1 • Fork of DockMinimizer")
+                Text("DockFlow v1.0.2 • Fork of DockMinimizer")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
 

@@ -19,14 +19,16 @@ echo "2. Mounting image..."
 hdiutil attach "$RW_DMG" -readwrite -nobrowse >/dev/null
 sleep 1
 
-echo "3. Copying app and assets..."
+APP_SRC="${1:-/Applications/DockFlow.app}"
+
+echo "3. Copying app ($APP_SRC) and assets..."
 mkdir -p "$MOUNT_DIR/.background"
 if [ -f "$PROJECT_DIR/scripts/assets/dmg_background.png" ]; then
     cp "$PROJECT_DIR/scripts/assets/dmg_background.png" "$MOUNT_DIR/.background/background.png"
 elif [ -f "/tmp/dmg_background.png" ]; then
     cp /tmp/dmg_background.png "$MOUNT_DIR/.background/background.png"
 fi
-cp -R "/Applications/DockFlow.app" "$MOUNT_DIR/"
+cp -R "$APP_SRC" "$MOUNT_DIR/DockFlow.app"
 ln -s /Applications "$MOUNT_DIR/Applications"
 
 echo "4. Setting window layout via Finder..."
