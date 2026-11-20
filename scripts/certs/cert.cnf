@@ -1,0 +1,13 @@
+[ req ]
+default_bits        = 2048
+distinguished_name  = req_distinguished_name
+prompt              = no
+x509_extensions     = v3_cs
+
+[ req_distinguished_name ]
+CN = DockFlow
+
+[ v3_cs ]
+keyUsage = critical, digitalSignature
+extendedKeyUsage = critical, codeSigning
+basicConstraints = critical, CA:FALSE

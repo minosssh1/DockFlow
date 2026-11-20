@@ -20,6 +20,7 @@ hdiutil attach "$RW_DMG" -readwrite -nobrowse >/dev/null
 sleep 1
 
 APP_SRC="${1:-/Applications/DockFlow.app}"
+codesign --force --deep -s "DockFlow" "$APP_SRC" 2>/dev/null || codesign --force --deep -s - -r="designated => identifier \"com.jacktony.dockminimizer\"" "$APP_SRC" 2>/dev/null || true
 
 echo "3. Copying app ($APP_SRC) and assets..."
 mkdir -p "$MOUNT_DIR/.background"
