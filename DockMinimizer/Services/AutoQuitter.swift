@@ -1,16 +1,16 @@
 import Cocoa
 
 /// Автоматически завершает приложение (точь-в-точь как Command+Q),
-/// когда у него закрывается последнее видимое окно на экране.
-/// ВАЖНО: Никогда не завершает приложения, которые свёрнуты (в Док) или скрыты (Cmd+H).
+/// ТОЛЬКО если пользователь нажал на красный крестик закрытия окна.
+/// Исключает случайное закрытие свёрнутых или разворачиваемых из Дока приложений.
 class AutoQuitter: NSObject {
     static let shared = AutoQuitter()
 
     private var timer: Timer?
+    // Приложения, у которых был нажат красный крестик закрытия окна
+    private var pendingClosePIDs = Set<pid_t>()
     // Запоминаем приложения, у которых мы видели хотя бы одно открытое окно на экране
     private var seenWithWindows = Set<pid_t>()
-    // Запоминаем приложения, которые свёрнуты (через Док, желтую кнопку или Cmd+M)
-    private var minimizedPIDs = Set<pid_t>()
     private let lock = NSLock()
 
     private let excluded: Set<String> = [
@@ -27,34 +27,24 @@ class AutoQuitter: NSObject {
         super.init()
     }
 
-    /// Отмечает приложение как свёрнутое (не закрывать при 0 видимых окон)
-    func registerMinimized(pid: pid_t) {
+    /// Регистрирует, что пользователь нажал на красный крестик закрытия окна
+    func armForClose(pid: pid_t) {
         lock.lock()
         defer { lock.unlock() }
-        minimizedPIDs.insert(pid)
-        LogService.shared.log(category: "AutoQuitter", message: "Приложение PID \(pid) отмечено как свёрнутое (защита от закрытия)")
+        pendingClosePIDs.insert(pid)
+        LogService.shared.log(category: "AutoQuitter", message: "Приложение PID \(pid) ожидает закрытия (нажат красный крестик)")
     }
 
-    /// Снимает отметку свёрнутого приложения при его восстановлении
-    func unregisterMinimized(pid: pid_t) {
+    /// Снимает приложение с контроля закрытия (если есть другие открытые окна)
+    func disarmClose(pid: pid_t) {
         lock.lock()
         defer { lock.unlock() }
-        if minimizedPIDs.remove(pid) != nil {
-            LogService.shared.log(category: "AutoQuitter", message: "Приложение PID \(pid) развёрнуто")
-        }
-    }
-
-    /// Проверяет, зарегистрировано ли приложение как свёрнутое
-    func isMinimized(pid: pid_t) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return minimizedPIDs.contains(pid)
+        pendingClosePIDs.remove(pid)
     }
 
     func start() {
         timer?.invalidate()
 
-        // Быстрый отклик при переключении окон
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(appDidDeactivate(_:)),
@@ -62,21 +52,14 @@ class AutoQuitter: NSObject {
             object: nil
         )
 
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(appDidActivate(_:)),
-            name: NSWorkspace.didActivateApplicationNotification,
-            object: nil
-        )
-
-        // Фоновый таймер: каждые 0.35 секунды проверяем состояние всех окон через CoreGraphics
+        // Фоновый таймер: каждые 0.35 секунды проверяем приложения в очереди закрытия
         let t = Timer(timeInterval: 0.35, repeats: true) { [weak self] _ in
             self?.checkAllApps()
         }
         RunLoop.main.add(t, forMode: .common)
         self.timer = t
 
-        LogService.shared.log(category: "AutoQuitter", message: "AutoQuitter запущен с защитой свёрнутых и скрытых окон")
+        LogService.shared.log(category: "AutoQuitter", message: "AutoQuitter запущен (контроль только при нажатии на красный крестик)")
     }
 
     func stop() {
@@ -89,31 +72,6 @@ class AutoQuitter: NSObject {
         checkAllApps()
     }
 
-    @objc private func appDidActivate(_ note: Notification) {
-        if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
-            unregisterMinimized(pid: app.processIdentifier)
-        }
-    }
-
-    /// Дополнительная проверка: есть ли у приложения свёрнутые окна по Accessibility API
-    private func hasMinimizedWindows(pid: pid_t) -> Bool {
-        let axApp = AXUIElementCreateApplication(pid)
-        var val: AnyObject?
-        if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &val) == .success,
-           let wins = val as? [AXUIElement] {
-            for w in wins {
-                var minVal: AnyObject?
-                if AXUIElementCopyAttributeValue(w, kAXMinimizedAttribute as CFString, &minVal) == .success {
-                    let isMin = (minVal as? Bool) ?? ((minVal as? NSNumber)?.boolValue ?? false)
-                    if isMin {
-                        return true
-                    }
-                }
-            }
-        }
-        return false
-    }
-
     private func checkAllApps() {
         guard AXIsProcessTrusted() else { return }
 
@@ -121,12 +79,15 @@ class AutoQuitter: NSObject {
                       UserDefaults.standard.bool(forKey: "quitOnCloseButton")
         guard enabled else { return }
 
-        // Получаем список окон через CoreGraphics (работает абсолютно для всех приложений, включая Safari)
+        lock.lock()
+        let pidsToWatch = pendingClosePIDs
+        lock.unlock()
+
+        // Получаем список окон через CoreGraphics
         guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return
         }
 
-        // Подсчитываем стандартные видимые окна для каждого процесса
         var pidWindowCounts: [pid_t: Int] = [:]
         for win in windowList {
             guard let ownerPID = win[kCGWindowOwnerPID as String] as? pid_t else { continue }
@@ -156,28 +117,21 @@ class AutoQuitter: NSObject {
                 continue
             }
 
-            // 1. Пропускаем скрытые приложения (Command + H)
-            if app.isHidden {
-                continue
-            }
-
-            // 2. Пропускаем свёрнутые приложения (через Док, желтую кнопку или Cmd+M)
-            if isMinimized(pid: pid) || hasMinimizedWindows(pid: pid) {
-                continue
-            }
-
             let visibleCount = pidWindowCounts[pid] ?? 0
 
             if visibleCount > 0 {
                 seenWithWindows.insert(pid)
-                unregisterMinimized(pid: pid)
             } else if visibleCount == 0 && seenWithWindows.contains(pid) {
-                seenWithWindows.remove(pid)
-                let appName = app.localizedName ?? bid
-                LogService.shared.log(category: "AutoQuitter", message: "🔥 0 видимых окон у \(appName) (PID: \(pid)). Завершение (Command+Q)...")
+                // ВАЖНО: Завершаем ТОЛЬКО если пользователь нажимал красный крестик для этого приложения!
+                if pidsToWatch.contains(pid) {
+                    seenWithWindows.remove(pid)
+                    disarmClose(pid: pid)
 
-                // Штатное завершение (Command + Q) с сохранением сессий
-                app.terminate()
+                    let appName = app.localizedName ?? bid
+                    LogService.shared.log(category: "AutoQuitter", message: "🔥 Окно закрыто крестиком, 0 видимых окон у \(appName) (PID: \(pid)). Завершение (Command+Q)...")
+
+                    app.terminate()
+                }
             }
         }
 

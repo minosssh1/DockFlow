@@ -24,7 +24,6 @@ class WindowMinimizer {
 
         // If app is hidden, restore it
         if app.isHidden {
-            AutoQuitter.shared.unregisterMinimized(pid: pid)
             let success = app.activate()
             LogService.shared.log(category: "WindowMinimizer", message: "Activate app: \(appName) (PID: \(pid)) - \(success ? "success" : "failed")")
             return false
@@ -36,7 +35,6 @@ class WindowMinimizer {
 
         guard res == .success, let windows = windowsVal as? [AXUIElement], !windows.isEmpty else {
             // Fallback: hide app if windows cannot be inspected
-            AutoQuitter.shared.registerMinimized(pid: pid)
             app.hide()
             LogService.shared.log(category: "WindowMinimizer", message: "Hide app (no AX windows): \(appName)")
             return true
@@ -57,13 +55,9 @@ class WindowMinimizer {
 
         if visibleWindows.isEmpty {
             // All windows already minimized: let macOS Dock unminimize them with reverse Genie animation!
-            AutoQuitter.shared.unregisterMinimized(pid: pid)
             LogService.shared.log(category: "WindowMinimizer", message: "All windows already minimized for \(appName), passing click to Dock")
             return false
         }
-
-        // Защищаем приложение от автозакрытия перед сворачиванием в Док
-        AutoQuitter.shared.registerMinimized(pid: pid)
 
         // Minimize visible windows with Genie animation
         var didMinimize = false

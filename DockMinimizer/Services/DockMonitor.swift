@@ -43,20 +43,6 @@ private func globalEventCallback(proxy: CGEventTapProxy, type: CGEventType, even
         return Unmanaged.passUnretained(event)
     }
 
-    // Отслеживание клавиатурных сочетаний (⌘M для сворачивания)
-    if type == .keyDown {
-        let flags = event.flags
-        if flags.contains(.maskCommand) {
-            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-            if keyCode == 46 { // ⌘M
-                if let frontApp = NSWorkspace.shared.frontmostApplication {
-                    AutoQuitter.shared.registerMinimized(pid: frontApp.processIdentifier)
-                }
-            }
-        }
-        return Unmanaged.passUnretained(event)
-    }
-
     let consumed = monitor.handleEvent(proxy: proxy, type: type, event: event)
     return consumed ? nil : Unmanaged.passUnretained(event)
 }
@@ -204,7 +190,6 @@ class DockMonitor: ObservableObject {
         }
         currentFrontmostPID = app.processIdentifier
         currentFrontmostName = app.localizedName
-        AutoQuitter.shared.unregisterMinimized(pid: app.processIdentifier)
     }
 
     private func tryStartEventTap() {
@@ -216,7 +201,7 @@ class DockMonitor: ObservableObject {
 
     private func startEventTap() {
         LogService.shared.log(category: "DockMonitor", message: "[startEventTap] 开始创建 eventTap")
-        let eventMask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.keyDown.rawValue)
+        let eventMask = (1 << CGEventType.leftMouseDown.rawValue)
         let selfPointer = Unmanaged.passUnretained(self).toOpaque()
 
         guard let tap = CGEvent.tapCreate(
@@ -364,6 +349,9 @@ class DockMonitor: ObservableObject {
 
         LogService.shared.log(category: "CloseButton", message: "Клик по красному крестику: \(app.localizedName ?? "") (PID: \(pid))")
 
+        // Ставим приложение на контроль закрытия
+        AutoQuitter.shared.armForClose(pid: pid)
+
         // Проверяем количество стандартных окон
         let axApp = AXUIElementCreateApplication(pid)
         var windowsVal: AnyObject?
@@ -405,29 +393,11 @@ class DockMonitor: ObservableObject {
                 if remaining.isEmpty {
                     LogService.shared.log(category: "CloseButton", message: "Все окна закрыты, завершаем приложение: \(checkApp.localizedName ?? "")")
                     checkApp.terminate()
+                } else {
+                    AutoQuitter.shared.disarmClose(pid: pid)
                 }
             }
             return false
-        }
-    }
-
-    private func checkMinimizeButtonClick(at location: CGPoint) {
-        let sys = AXUIElementCreateSystemWide()
-        var hitElem: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(sys, Float(location.x), Float(location.y), &hitElem) == .success,
-              let element = hitElem else {
-            return
-        }
-
-        var subroleVal: AnyObject?
-        AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleVal)
-        guard let subrole = subroleVal as? String, subrole == (kAXMinimizeButtonSubrole as String) else {
-            return
-        }
-
-        var pid: pid_t = 0
-        if AXUIElementGetPid(element, &pid) == .success, pid != 0 {
-            AutoQuitter.shared.registerMinimized(pid: pid)
         }
     }
 
@@ -476,9 +446,6 @@ class DockMonitor: ObservableObject {
                 return true
             }
         }
-
-        // 3. Отслеживаем клик по желтой кнопке (сворачивание)
-        checkMinimizeButtonClick(at: location)
 
         return false
     }
