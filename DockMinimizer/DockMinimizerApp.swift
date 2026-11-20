@@ -85,14 +85,161 @@ struct SettingRow<Content: View>: View {
     }
 }
 
+// MARK: - Exclusions Sheet View
+
+struct ExclusionsSheetView: View {
+    @ObservedObject var exclusionManager = AppExclusionManager.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.purple.gradient)
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "app.badge.checkmark")
+                        .foregroundColor(.white)
+                        .font(.system(size: 18, weight: .semibold))
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Исключения закрытия по крестику")
+                        .font(.system(size: 15, weight: .bold))
+                    Text("Эти приложения не завершаются (⌘Q) при закрытии окна и продолжают работать в фоне")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            // List of excluded apps
+            let items = exclusionManager.getExcludedAppItems()
+            if items.isEmpty {
+                VStack(spacing: 10) {
+                    Spacer()
+                    Image(systemName: "tray")
+                        .font(.system(size: 36))
+                        .foregroundColor(.secondary.opacity(0.6))
+                    Text("Список исключений пуст")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Text("Все приложения будут завершаться по крестику")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary.opacity(0.8))
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(items) { item in
+                        HStack(spacing: 12) {
+                            Image(nsImage: item.icon)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 28, height: 28)
+                                .cornerRadius(6)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                Text(item.bundleIdentifier)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            Button(action: {
+                                exclusionManager.removeApp(bundleIdentifier: item.bundleIdentifier)
+                            }) {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red.opacity(0.8))
+                                    .font(.system(size: 12))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Удалить из исключений")
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .listStyle(.inset(alternatesRowBackgrounds: true))
+            }
+
+            Divider()
+
+            // Quick Add suggestions
+            let suggestions = [
+                ("Telegram", "ru.keepcoder.Telegram"),
+                ("Discord", "com.hnc.Discord"),
+                ("Spotify", "com.spotify.client"),
+                ("Музыка", "com.apple.Music")
+            ].filter { !exclusionManager.isExcluded(bundleIdentifier: $0.1) }
+
+            if !suggestions.isEmpty {
+                HStack(spacing: 8) {
+                    Text("Быстрое добавление:")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+
+                    ForEach(suggestions, id: \.1) { name, bid in
+                        Button("+ \(name)") {
+                            exclusionManager.addApp(bundleIdentifier: bid)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+
+                Divider()
+            }
+
+            // Bottom action buttons
+            HStack {
+                Button(action: {
+                    exclusionManager.addAppViaFilePicker()
+                }) {
+                    Label("Добавить приложение...", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                Spacer()
+
+                Button("Готово") {
+                    exclusionManager.showSheet = false
+                }
+                .controlSize(.small)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Color(NSColor.windowBackgroundColor))
+        }
+        .frame(width: 480, height: 380)
+    }
+}
+
 // MARK: - Modern Settings View (macOS 27 Aesthetic)
 
 struct SettingsView: View {
     @AppStorage("loggingEnabled") private var loggingEnabled = false
     @AppStorage("showPanelOnLaunch") private var showPanelOnLaunch = false
     @AppStorage("quitOnCloseButton") private var quitOnCloseButton = true
+    @AppStorage("hapticFeedbackEnabled") private var hapticFeedbackEnabled = true
+    @AppStorage("middleClickAction") private var middleClickAction = "newWindow"
     @StateObject private var launchAtLoginManager = LaunchAtLoginManager.shared
     @StateObject private var dockMonitor = DockMonitor.shared
+    @StateObject private var exclusionManager = AppExclusionManager.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -163,6 +310,38 @@ struct SettingsView: View {
                             .padding(.leading, 58)
 
                         SettingRow(
+                            iconName: "hand.tap.fill",
+                            iconColor: .orange,
+                            title: "Тактильный отклик (Haptic)",
+                            subtitle: "Виброотклик трекпада Force Touch при сворачивании и закрытии окон"
+                        ) {
+                            Toggle("", isOn: $hapticFeedbackEnabled)
+                                .labelsHidden()
+                        }
+
+                        Divider()
+                            .padding(.leading, 58)
+
+                        SettingRow(
+                            iconName: "computermouse.fill",
+                            iconColor: .teal,
+                            title: "Клик колёсиком по Доку",
+                            subtitle: "Действие при среднем клике по иконке приложения"
+                        ) {
+                            Picker("", selection: $middleClickAction) {
+                                Text("Новое окно (⌘N)").tag("newWindow")
+                                Text("Завершить (⌘Q)").tag("quitApp")
+                                Text("Скрыть (⌘H)").tag("hideApp")
+                                Text("Отключено").tag("disabled")
+                            }
+                            .labelsHidden()
+                            .frame(width: 155)
+                        }
+
+                        Divider()
+                            .padding(.leading, 58)
+
+                        SettingRow(
                             iconName: "xmark.circle.fill",
                             iconColor: .red,
                             title: "Полное закрытие по крестику (⌘Q)",
@@ -170,6 +349,23 @@ struct SettingsView: View {
                         ) {
                             Toggle("", isOn: $quitOnCloseButton)
                                 .labelsHidden()
+                        }
+
+                        if quitOnCloseButton {
+                            Divider()
+                                .padding(.leading, 58)
+
+                            SettingRow(
+                                iconName: "app.badge.checkmark",
+                                iconColor: .purple,
+                                title: "Исключения закрытия (⌘Q)",
+                                subtitle: "\(exclusionManager.excludedBundleIDs.count) приложений остаются работать в фоне"
+                            ) {
+                                Button("Настроить...") {
+                                    exclusionManager.showSheet = true
+                                }
+                                .controlSize(.small)
+                            }
                         }
                     }
                     .background(
@@ -187,7 +383,7 @@ struct SettingsView: View {
                             iconName: "bolt.fill",
                             iconColor: .green,
                             title: "Запуск при входе в систему",
-                            subtitle: "Автоматически запускать DockMinimizer при включении Mac"
+                            subtitle: "Автоматически запускать DockFlow при включении Mac"
                         ) {
                             Toggle("", isOn: Binding(
                                 get: { launchAtLoginManager.isEnabled },
@@ -260,7 +456,7 @@ struct SettingsView: View {
 
             // Footer
             HStack {
-                Text("DockFlow v1.0.4 • Fork of DockMinimizer")
+                Text("DockFlow v1.0.5 • Fork of DockMinimizer")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
 
@@ -282,8 +478,11 @@ struct SettingsView: View {
             .padding(.vertical, 14)
             .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
         }
-        .frame(width: 440, height: 560)
+        .frame(width: 460, height: 600)
         .background(Color(NSColor.windowBackgroundColor))
+        .sheet(isPresented: $exclusionManager.showSheet) {
+            ExclusionsSheetView()
+        }
     }
 }
 
@@ -299,7 +498,7 @@ struct DockMinimizerApp: App {
         }
         .windowStyle(.automatic)
         .defaultPosition(.center)
-        .defaultSize(width: 440, height: 560)
+        .defaultSize(width: 460, height: 600)
         .commands {
             CommandGroup(replacing: .windowArrangement) { }
         }

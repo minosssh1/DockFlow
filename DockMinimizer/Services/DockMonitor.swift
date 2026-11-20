@@ -214,7 +214,7 @@ class DockMonitor: ObservableObject {
 
     private func startEventTap() {
         LogService.shared.log(category: "DockMonitor", message: "[startEventTap] 开始创建 eventTap")
-        let eventMask = (1 << CGEventType.leftMouseDown.rawValue)
+        let eventMask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.otherMouseDown.rawValue)
         let selfPointer = Unmanaged.passUnretained(self).toOpaque()
 
         guard let tap = CGEvent.tapCreate(
@@ -356,11 +356,15 @@ class DockMonitor: ObservableObject {
             "com.dockflow.app"
         ]
 
-        if let bid = app.bundleIdentifier, excluded.contains(bid) {
-            return false
+        if let bid = app.bundleIdentifier {
+            if excluded.contains(bid) || AppExclusionManager.shared.isExcluded(bundleIdentifier: bid) {
+                LogService.shared.log(category: "CloseButton", message: "Приложение \(app.localizedName ?? bid) в списке исключений, обычное закрытие")
+                return false
+            }
         }
 
         LogService.shared.log(category: "CloseButton", message: "Клик по красному крестику: \(app.localizedName ?? "") (PID: \(pid))")
+        HapticFeedbackService.shared.playTap()
 
         // Ставим приложение на контроль закрытия
         AutoQuitter.shared.armForClose(pid: pid)
@@ -414,7 +418,85 @@ class DockMonitor: ObservableObject {
         }
     }
 
+    private func handleMiddleClick(event: CGEvent) -> Bool {
+        let actionRaw = UserDefaults.standard.string(forKey: "middleClickAction") ?? "newWindow"
+        guard actionRaw != "disabled" else { return false }
+
+        let location = event.location
+        let screenHeight = NSScreen.main?.frame.height ?? CGDisplayBounds(CGMainDisplayID()).height
+        let dockHeight: CGFloat = 140
+
+        guard location.y >= screenHeight - dockHeight else { return false }
+        guard let appInfo = getAppInfoAtDockLocation(location) else { return false }
+
+        HapticFeedbackService.shared.playTap()
+        LogService.shared.log(category: "MiddleClick", message: "Клик колёсиком по Доку: \(appInfo.title), действие: \(actionRaw)")
+
+        // Ищем приложение
+        var targetApp: NSRunningApplication?
+        if let urlStr = appInfo.urlString, let itemURL = URL(string: urlStr) {
+            targetApp = NSWorkspace.shared.runningApplications.first { app in
+                app.bundleURL?.standardizedFileURL == itemURL.standardizedFileURL
+            }
+        }
+        if targetApp == nil {
+            let clicked = appInfo.title.lowercased()
+            targetApp = NSWorkspace.shared.runningApplications.first { app in
+                let name = (app.localizedName ?? "").lowercased()
+                return name == clicked || name.contains(clicked) || clicked.contains(name)
+            }
+        }
+
+        switch actionRaw {
+        case "newWindow":
+            if let app = targetApp {
+                app.activate()
+                // Отправляем ⌘N
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    let src = CGEventSource(stateID: .hidSystemState)
+                    let keyDown = CGEvent(keyboardEventSource: src, virtualKey: 0x2D, keyDown: true) // 'N'
+                    keyDown?.flags = .maskCommand
+                    let keyUp = CGEvent(keyboardEventSource: src, virtualKey: 0x2D, keyDown: false)
+                    keyUp?.flags = .maskCommand
+
+                    keyDown?.post(tap: .cghidEventTap)
+                    keyUp?.post(tap: .cghidEventTap)
+                }
+            } else if let urlStr = appInfo.urlString, let url = URL(string: urlStr) {
+                NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+            }
+            return true
+
+        case "quitApp":
+            if let app = targetApp {
+                app.terminate()
+                return true
+            }
+
+        case "hideApp":
+            if let app = targetApp {
+                app.hide()
+                return true
+            }
+
+        default:
+            break
+        }
+
+        return false
+    }
+
     func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Bool {
+        if type == .otherMouseDown {
+            let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
+            if buttonNumber == 2 { // Middle click (wheel)
+                return autoreleasepool {
+                    return handleMiddleClick(event: event)
+                }
+            }
+            return false
+        }
+
         guard type == .leftMouseDown else { return false }
 
         return autoreleasepool {

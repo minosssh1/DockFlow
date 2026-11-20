@@ -83,6 +83,7 @@ class WindowMinimizer {
         } else {
             LogService.shared.log(category: "WindowMinimizer", message: "Minimized with Genie: \(appName)")
         }
+        HapticFeedbackService.shared.playTap()
         return true
     }
 

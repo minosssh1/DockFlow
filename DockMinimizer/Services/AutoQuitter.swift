@@ -103,6 +103,7 @@ class AutoQuitter: NSObject {
               app.activationPolicy == .regular,
               let bid = app.bundleIdentifier,
               !excluded.contains(bid),
+              !AppExclusionManager.shared.isExcluded(bundleIdentifier: bid),
               pid != ProcessInfo.processInfo.processIdentifier else {
             disarmClose(pid: pid)
             return
