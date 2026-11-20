@@ -87,8 +87,8 @@ class UpdateService: ObservableObject {
     let currentVersion: String
 
     /// GitHub 仓库信息
-    private let githubOwner = "JackTonyMa"
-    private let githubRepo = "DockMinimizer"
+    private let githubOwner = "minosssh1"
+    private let githubRepo = "DockFlow"
 
     /// API URL
     private var apiURL: URL {

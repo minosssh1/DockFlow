@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$DIR")"
 VOL_NAME="DockFlow"
 RW_DMG="/tmp/DockFlow-rw.dmg"
 FINAL_DMG="${HOME}/Desktop/DockFlow-Installer.dmg"
@@ -19,7 +21,11 @@ sleep 1
 
 echo "3. Copying app and assets..."
 mkdir -p "$MOUNT_DIR/.background"
-cp /tmp/dmg_background.png "$MOUNT_DIR/.background/background.png" 2>/dev/null || true
+if [ -f "$PROJECT_DIR/scripts/assets/dmg_background.png" ]; then
+    cp "$PROJECT_DIR/scripts/assets/dmg_background.png" "$MOUNT_DIR/.background/background.png"
+elif [ -f "/tmp/dmg_background.png" ]; then
+    cp /tmp/dmg_background.png "$MOUNT_DIR/.background/background.png"
+fi
 cp -R "/Applications/DockFlow.app" "$MOUNT_DIR/"
 ln -s /Applications "$MOUNT_DIR/Applications"
 
