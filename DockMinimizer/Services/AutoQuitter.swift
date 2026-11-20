@@ -1,13 +1,17 @@
 import Cocoa
 
-/// Жёсткое правило: автоматически завершает приложение (точь-в-точь как Command+Q),
+/// Автоматически завершает приложение (точь-в-точь как Command+Q),
 /// когда у него закрывается последнее видимое окно на экране.
+/// ВАЖНО: Никогда не завершает приложения, которые свёрнуты (в Док) или скрыты (Cmd+H).
 class AutoQuitter: NSObject {
     static let shared = AutoQuitter()
 
     private var timer: Timer?
-    // Запоминаем приложения, у которых мы видели хотя бы одно открытое окно
+    // Запоминаем приложения, у которых мы видели хотя бы одно открытое окно на экране
     private var seenWithWindows = Set<pid_t>()
+    // Запоминаем приложения, которые свёрнуты (через Док, желтую кнопку или Cmd+M)
+    private var minimizedPIDs = Set<pid_t>()
+    private let lock = NSLock()
 
     private let excluded: Set<String> = [
         "com.apple.finder",
@@ -15,11 +19,36 @@ class AutoQuitter: NSObject {
         "com.apple.loginwindow",
         "com.apple.SystemUIServer",
         "com.apple.WindowManager",
-        "com.jacktony.dockminimizer"
+        "com.jacktony.dockminimizer",
+        "com.dockflow.app"
     ]
 
     private override init() {
         super.init()
+    }
+
+    /// Отмечает приложение как свёрнутое (не закрывать при 0 видимых окон)
+    func registerMinimized(pid: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+        minimizedPIDs.insert(pid)
+        LogService.shared.log(category: "AutoQuitter", message: "Приложение PID \(pid) отмечено как свёрнутое (защита от закрытия)")
+    }
+
+    /// Снимает отметку свёрнутого приложения при его восстановлении
+    func unregisterMinimized(pid: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+        if minimizedPIDs.remove(pid) != nil {
+            LogService.shared.log(category: "AutoQuitter", message: "Приложение PID \(pid) развёрнуто")
+        }
+    }
+
+    /// Проверяет, зарегистрировано ли приложение как свёрнутое
+    func isMinimized(pid: pid_t) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return minimizedPIDs.contains(pid)
     }
 
     func start() {
@@ -33,6 +62,13 @@ class AutoQuitter: NSObject {
             object: nil
         )
 
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(appDidActivate(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+
         // Фоновый таймер: каждые 0.35 секунды проверяем состояние всех окон через CoreGraphics
         let t = Timer(timeInterval: 0.35, repeats: true) { [weak self] _ in
             self?.checkAllApps()
@@ -40,7 +76,7 @@ class AutoQuitter: NSObject {
         RunLoop.main.add(t, forMode: .common)
         self.timer = t
 
-        LogService.shared.log(category: "AutoQuitter", message: "AutoQuitter (CoreGraphics жесткое правило) запущен")
+        LogService.shared.log(category: "AutoQuitter", message: "AutoQuitter запущен с защитой свёрнутых и скрытых окон")
     }
 
     func stop() {
@@ -53,7 +89,34 @@ class AutoQuitter: NSObject {
         checkAllApps()
     }
 
+    @objc private func appDidActivate(_ note: Notification) {
+        if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+            unregisterMinimized(pid: app.processIdentifier)
+        }
+    }
+
+    /// Дополнительная проверка: есть ли у приложения свёрнутые окна по Accessibility API
+    private func hasMinimizedWindows(pid: pid_t) -> Bool {
+        let axApp = AXUIElementCreateApplication(pid)
+        var val: AnyObject?
+        if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &val) == .success,
+           let wins = val as? [AXUIElement] {
+            for w in wins {
+                var minVal: AnyObject?
+                if AXUIElementCopyAttributeValue(w, kAXMinimizedAttribute as CFString, &minVal) == .success {
+                    let isMin = (minVal as? Bool) ?? ((minVal as? NSNumber)?.boolValue ?? false)
+                    if isMin {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
     private func checkAllApps() {
+        guard AXIsProcessTrusted() else { return }
+
         let enabled = UserDefaults.standard.object(forKey: "quitOnCloseButton") == nil ||
                       UserDefaults.standard.bool(forKey: "quitOnCloseButton")
         guard enabled else { return }
@@ -88,7 +151,18 @@ class AutoQuitter: NSObject {
             guard app.activationPolicy == .regular,
                   let bid = app.bundleIdentifier,
                   !excluded.contains(bid),
+                  pid != ProcessInfo.processInfo.processIdentifier,
                   app.isFinishedLaunching else {
+                continue
+            }
+
+            // 1. Пропускаем скрытые приложения (Command + H)
+            if app.isHidden {
+                continue
+            }
+
+            // 2. Пропускаем свёрнутые приложения (через Док, желтую кнопку или Cmd+M)
+            if isMinimized(pid: pid) || hasMinimizedWindows(pid: pid) {
                 continue
             }
 
@@ -96,20 +170,14 @@ class AutoQuitter: NSObject {
 
             if visibleCount > 0 {
                 seenWithWindows.insert(pid)
+                unregisterMinimized(pid: pid)
             } else if visibleCount == 0 && seenWithWindows.contains(pid) {
                 seenWithWindows.remove(pid)
                 let appName = app.localizedName ?? bid
-                LogService.shared.log(category: "AutoQuitter", message: "🔥 0 видимых окон у \(appName) (PID: \(pid)). Жёсткое закрытие точь-в-точь как Command+Q!")
+                LogService.shared.log(category: "AutoQuitter", message: "🔥 0 видимых окон у \(appName) (PID: \(pid)). Завершение (Command+Q)...")
 
-                // 1. Штатное завершение (Command + Q)
+                // Штатное завершение (Command + Q) с сохранением сессий
                 app.terminate()
-
-                // 2. Если через 0.4с процесс всё ещё активен — закрываем принудительно
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    guard let checkApp = NSRunningApplication(processIdentifier: pid), !checkApp.isTerminated else { return }
-                    LogService.shared.log(category: "AutoQuitter", message: "Принудительное завершение: \(appName)")
-                    checkApp.forceTerminate()
-                }
             }
         }
 

@@ -37,10 +37,23 @@ private func globalEventCallback(proxy: CGEventTapProxy, type: CGEventType, even
     }
 
     // 使用轻量的权限检查，避免在回调中执行可能阻塞的 API 调用
-    // AXIsProcessTrusted() 是非阻塞的，而 isAccessibilityActuallyWorking() 可能会阻塞
     if !AXIsProcessTrusted() {
         LogService.shared.log(level: .warning, category: "DockMonitor", message: "[回调] 权限已撤销，立即停止并返回事件")
         monitor.handleTapDisabled()
+        return Unmanaged.passUnretained(event)
+    }
+
+    // Отслеживание клавиатурных сочетаний (⌘M для сворачивания)
+    if type == .keyDown {
+        let flags = event.flags
+        if flags.contains(.maskCommand) {
+            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            if keyCode == 46 { // ⌘M
+                if let frontApp = NSWorkspace.shared.frontmostApplication {
+                    AutoQuitter.shared.registerMinimized(pid: frontApp.processIdentifier)
+                }
+            }
+        }
         return Unmanaged.passUnretained(event)
     }
 
@@ -191,6 +204,7 @@ class DockMonitor: ObservableObject {
         }
         currentFrontmostPID = app.processIdentifier
         currentFrontmostName = app.localizedName
+        AutoQuitter.shared.unregisterMinimized(pid: app.processIdentifier)
     }
 
     private func tryStartEventTap() {
@@ -202,7 +216,7 @@ class DockMonitor: ObservableObject {
 
     private func startEventTap() {
         LogService.shared.log(category: "DockMonitor", message: "[startEventTap] 开始创建 eventTap")
-        let eventMask = (1 << CGEventType.leftMouseDown.rawValue)
+        let eventMask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.keyDown.rawValue)
         let selfPointer = Unmanaged.passUnretained(self).toOpaque()
 
         guard let tap = CGEvent.tapCreate(
@@ -340,7 +354,8 @@ class DockMonitor: ObservableObject {
             "com.apple.loginwindow",
             "com.apple.SystemUIServer",
             "com.apple.WindowManager",
-            "com.jacktony.dockminimizer"
+            "com.jacktony.dockminimizer",
+            "com.dockflow.app"
         ]
 
         if let bid = app.bundleIdentifier, excluded.contains(bid) {
@@ -396,6 +411,26 @@ class DockMonitor: ObservableObject {
         }
     }
 
+    private func checkMinimizeButtonClick(at location: CGPoint) {
+        let sys = AXUIElementCreateSystemWide()
+        var hitElem: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(sys, Float(location.x), Float(location.y), &hitElem) == .success,
+              let element = hitElem else {
+            return
+        }
+
+        var subroleVal: AnyObject?
+        AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleVal)
+        guard let subrole = subroleVal as? String, subrole == (kAXMinimizeButtonSubrole as String) else {
+            return
+        }
+
+        var pid: pid_t = 0
+        if AXUIElementGetPid(element, &pid) == .success, pid != 0 {
+            AutoQuitter.shared.registerMinimized(pid: pid)
+        }
+    }
+
     func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Bool {
         guard type == .leftMouseDown else { return false }
 
@@ -437,8 +472,13 @@ class DockMonitor: ObservableObject {
         // 2. Проверяем клик по красному крестику (полное закрытие через Cmd+Q)
         let quitOnClose = UserDefaults.standard.object(forKey: "quitOnCloseButton") == nil || UserDefaults.standard.bool(forKey: "quitOnCloseButton")
         if quitOnClose {
-            _ = handleCloseButtonClick(at: location)
+            if handleCloseButtonClick(at: location) {
+                return true
+            }
         }
+
+        // 3. Отслеживаем клик по желтой кнопке (сворачивание)
+        checkMinimizeButtonClick(at: location)
 
         return false
     }
