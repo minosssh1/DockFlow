@@ -14,6 +14,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var updateService = UpdateService.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if CommandLine.arguments.contains("--render-screenshots") {
+            renderScreenshotsAndExit()
+            return
+        }
+
         LogService.shared.log(category: "AppDelegate", message: "应用启动: \(Bundle.main.bundlePath)")
 
         // Set activation policy to accessory (no dock icon, but can show status bar)
@@ -381,5 +386,41 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // 窗口关闭时不清除引用，下次打开时可以复用
             // 因为 isReleasedWhenClosed = false，窗口对象仍然存在
         }
+    }
+
+    // MARK: - Screenshot Generator for Repository
+
+    @MainActor
+    private func renderScreenshotsAndExit() {
+        let outputDir = "/Users/minosssh1./.gemini/antigravity/scratch/DockMinimizer/assets/screenshots"
+        try? FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
+
+        // 1. Render Main Settings View
+        let settingsView = SettingsView().frame(width: 460, height: 600)
+        let renderer1 = ImageRenderer(content: settingsView)
+        renderer1.scale = 2.0
+        if let cgImg = renderer1.cgImage {
+            let rep = NSBitmapImageRep(cgImage: cgImg)
+            if let data = rep.representation(using: .png, properties: [:]) {
+                let path = "\(outputDir)/settings_main.png"
+                try? data.write(to: URL(fileURLWithPath: path))
+                print("✅ Rendered \(path)")
+            }
+        }
+
+        // 2. Render Exclusions Sheet
+        let exclusionsView = ExclusionsSheetView().frame(width: 480, height: 380)
+        let renderer2 = ImageRenderer(content: exclusionsView)
+        renderer2.scale = 2.0
+        if let cgImg = renderer2.cgImage {
+            let rep = NSBitmapImageRep(cgImage: cgImg)
+            if let data = rep.representation(using: .png, properties: [:]) {
+                let path = "\(outputDir)/settings_exclusions.png"
+                try? data.write(to: URL(fileURLWithPath: path))
+                print("✅ Rendered \(path)")
+            }
+        }
+
+        exit(0)
     }
 }
