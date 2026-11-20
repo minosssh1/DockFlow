@@ -12,13 +12,23 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.gif" width="600" alt="DockFlow Demo" />
+  <img src="assets/demo_dock_minimize.gif" width="720" alt="DockFlow Genie Minimize & Restore" />
 </p>
 
 <p align="center">
-  <img src="assets/screenshots/settings_main.png" width="400" alt="DockFlow Настройки" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="assets/screenshots/settings_exclusions.png" width="420" alt="DockFlow Исключения закрытия" />
+  <img src="assets/demo_quit_on_close.gif" width="720" alt="DockFlow Quit on Close Button" />
+</p>
+
+<p align="center">
+  <details>
+    <summary><b>📸 Скриншоты окна настроек и исключений (Нажмите, чтобы развернуть)</b></summary>
+    <br/>
+    <p align="center">
+      <img src="assets/screenshots/settings_main.png" width="380" alt="DockFlow Настройки" />
+      &nbsp;&nbsp;&nbsp;&nbsp;
+      <img src="assets/screenshots/settings_exclusions.png" width="400" alt="DockFlow Исключения закрытия" />
+    </p>
+  </details>
 </p>
 
 > 🔱 **О проекте и авторстве:**  
@@ -60,14 +70,6 @@
 
 ---
 
-### 📸 Скриншоты интерфейса
-
-| Главное окно настроек | Меню исключений закрытия (⌘Q) |
-|:---:|:---:|
-| <img src="assets/screenshots/settings_main.png" width="380" alt="Главное окно DockFlow" /> | <img src="assets/screenshots/settings_exclusions.png" width="400" alt="Исключения закрытия" /> |
-
----
-
 ### 📦 Установка
 
 1. Скачайте **`DockFlow-Installer.dmg`** из раздела [Releases](https://github.com/minosssh1/DockFlow/releases).
@@ -93,9 +95,23 @@
 6. Multilingual interface: English, Russian (Русский), Simplified Chinese (简体中文), and Ukrainian (Українська) with real-time in-app switching.
 
 <p align="center">
-  <img src="assets/screenshots/settings_main.png" width="420" alt="DockFlow Main Settings" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="assets/screenshots/settings_exclusions.png" width="440" alt="DockFlow Exclusions Sheet" />
+  <img src="assets/demo_dock_minimize.gif" width="720" alt="DockFlow Genie Minimize & Restore" />
+</p>
+
+<p align="center">
+  <img src="assets/demo_quit_on_close.gif" width="720" alt="DockFlow Quit on Close Button" />
+</p>
+
+<p align="center">
+  <details>
+    <summary><b>📸 Screenshots (Settings Window & Exclusions Sheet)</b></summary>
+    <br/>
+    <p align="center">
+      <img src="assets/screenshots/settings_main.png" width="380" alt="DockFlow Settings Window" />
+      &nbsp;&nbsp;&nbsp;&nbsp;
+      <img src="assets/screenshots/settings_exclusions.png" width="400" alt="DockFlow Exclusions Sheet" />
+    </p>
+  </details>
 </p>
 
 > 🔱 **Attribution:**  
