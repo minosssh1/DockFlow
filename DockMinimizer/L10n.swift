@@ -1,15 +1,29 @@
 import Foundation
+import SwiftUI
+import Combine
 
-enum AppLanguage: String, CaseIterable {
+enum AppLanguage: String, CaseIterable, Identifiable {
     case system = ""
     case english = "en"
+    case russian = "ru"
     case simplifiedChinese = "zh-Hans"
+    case ukrainian = "uk"
+
+    var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .system: return NSLocalizedString("Follow System", comment: "")
-        case .english: return "English"
-        case .simplifiedChinese: return "简体中文"
+        case .system:
+            switch LocalizationManager.effectiveLanguageCode() {
+            case "ru": return "🌐 Системный"
+            case "uk": return "🌐 Системна"
+            case "zh-Hans": return "🌐 跟随系统"
+            default: return "🌐 System"
+            }
+        case .english: return "🇺🇸 English"
+        case .russian: return "🇷🇺 Русский"
+        case .simplifiedChinese: return "🇨🇳 简体中文"
+        case .ukrainian: return "🇺🇦 Українська"
         }
     }
 }
@@ -23,116 +37,599 @@ class LocalizationManager: ObservableObject {
         }
     }
 
-    private var currentBundle: Bundle?
-
     private init() {
-        let savedLanguage = UserDefaults.standard.string(forKey: "appLanguage") ?? ""
-        self.currentLanguage = AppLanguage(rawValue: savedLanguage) ?? .system
-        updateBundle()
+        let saved = UserDefaults.standard.string(forKey: "appLanguage") ?? ""
+        self.currentLanguage = AppLanguage(rawValue: saved) ?? .system
     }
 
-    private func updateBundle() {
-        if currentLanguage == .system {
-            currentBundle = nil
+    static func effectiveLanguageCode() -> String {
+        let saved = UserDefaults.standard.string(forKey: "appLanguage") ?? ""
+        if !saved.isEmpty {
+            return saved
+        }
+        let preferred = Locale.preferredLanguages.first?.lowercased() ?? "en"
+        if preferred.hasPrefix("uk") {
+            return "uk"
+        } else if preferred.hasPrefix("ru") {
+            return "ru"
+        } else if preferred.hasPrefix("zh") {
+            return "zh-Hans"
         } else {
-            if let path = Bundle.main.path(forResource: currentLanguage.rawValue, ofType: "lproj"),
-               let bundle = Bundle(path: path) {
-                currentBundle = bundle
-            } else {
-                currentBundle = nil
-            }
+            return "en"
         }
     }
 
-    func setLanguage(_ language: AppLanguage) {
-        currentLanguage = language
-        updateBundle()
+    var activeLanguageCode: String {
+        if currentLanguage == .system {
+            return Self.effectiveLanguageCode()
+        }
+        return currentLanguage.rawValue
     }
 
-    func localizedString(key: String, comment: String = "") -> String {
-        if let bundle = currentBundle {
-            return NSLocalizedString(key, bundle: bundle, comment: comment)
+    func text(ru: String, en: String, zh: String, uk: String) -> String {
+        switch activeLanguageCode {
+        case "en": return en
+        case "zh-Hans": return zh
+        case "uk": return uk
+        default: return ru
         }
-        return NSLocalizedString(key, comment: comment)
     }
 }
 
 enum L10n {
     private static var lm: LocalizationManager { LocalizationManager.shared }
 
-    // Language Settings
-    static var language: String { lm.localizedString(key: "Language", comment: "") }
-    static var followSystem: String { lm.localizedString(key: "Follow System", comment: "") }
+    // Header
+    static var subtitle: String {
+        lm.text(
+            ru: "Управление Доком и закрытие окон (⌘Q)",
+            en: "Dock window management and quit on close (⌘Q)",
+            zh: "Dock 窗口管理与快捷退出 (⌘Q)",
+            uk: "Керування Доком та закриття вікон (⌘Q)"
+        )
+    }
 
-    // Menu Items
-    static var settings: String { lm.localizedString(key: "Settings...", comment: "") }
-    static var dockMinimizerRunning: String { lm.localizedString(key: "DockMinimizer Running", comment: "") }
-    static var checkPermissions: String { lm.localizedString(key: "Check Permissions", comment: "") }
-    static var viewLogs: String { lm.localizedString(key: "View Logs", comment: "") }
-    static var quit: String { lm.localizedString(key: "Quit (⌘Q)", comment: "") }
+    static var runningInBackground: String {
+        lm.text(
+            ru: "Работает в фоновом режиме",
+            en: "Running in background",
+            zh: "后台运行中",
+            uk: "Працює у фоновому режимі"
+        )
+    }
 
-    // Settings Window
-    static var settingsWindowTitle: String { lm.localizedString(key: "DockMinimizer Settings", comment: "") }
-    static var settingsSubtitle: String { lm.localizedString(key: "Click Dock icon to minimize windows", comment: "") }
+    // Section 1
+    static var genieTitle: String {
+        lm.text(
+            ru: "Эффект Джинна в Доке",
+            en: "Genie Effect in Dock",
+            zh: "Dock 神奇效果",
+            uk: "Ефект Джина в Доку"
+        )
+    }
 
-    // Permission Status
-    static var permissionGranted: String { lm.localizedString(key: "Accessibility Permission Granted", comment: "") }
-    static var permissionNotGranted: String { lm.localizedString(key: "Accessibility Permission Not Granted", comment: "") }
-    static var openSystemSettings: String { lm.localizedString(key: "Open System Settings", comment: "") }
-    static var refreshStatus: String { lm.localizedString(key: "Refresh Status", comment: "") }
+    static var genieSubtitle: String {
+        lm.text(
+            ru: "Клик по иконке активного приложения в Доке плавно сворачивает его с анимацией",
+            en: "Clicking the active app icon in Dock smoothly minimizes it with animation",
+            zh: "点击 Dock 中活动应用的图标以动画平滑最小化窗口",
+            uk: "Клік по іконці активної програми в Доку плавно згортає її з анімацією"
+        )
+    }
 
-    // App Status
-    static var enabled: String { lm.localizedString(key: "Enabled", comment: "") }
-    static var runningDescription: String { lm.localizedString(key: "App is running in the background. Click the frontmost app's Dock icon to minimize its windows.", comment: "") }
+    static var hapticTitle: String {
+        lm.text(
+            ru: "Тактильный отклик (Haptic)",
+            en: "Haptic Feedback",
+            zh: "触觉反馈 (Haptic)",
+            uk: "Тактильний відгук (Haptic)"
+        )
+    }
 
-    // Logging
-    static var enableLogging: String { lm.localizedString(key: "Enable Logging", comment: "") }
-    static var logLocation: String { lm.localizedString(key: "Log location: ~/Library/Logs/DockMinimizer/", comment: "") }
-    static var quitApp: String { lm.localizedString(key: "Quit App", comment: "") }
-    static var enableLoggingHelp: String { lm.localizedString(key: "Enable logging to record app operations for troubleshooting", comment: "") }
+    static var hapticSubtitle: String {
+        lm.text(
+            ru: "Виброотклик трекпада Force Touch при сворачивании и закрытии окон",
+            en: "Force Touch trackpad vibration when minimizing or closing windows",
+            zh: "最小化或关闭窗口时 Force Touch 触控板震动反馈",
+            uk: "Вібровідгук трекпада Force Touch при згортанні та закритті вікон"
+        )
+    }
 
-    // Launch at Login
-    static var launchAtLogin: String { lm.localizedString(key: "Launch at Login", comment: "") }
-    static var launchAtLoginHelp: String { lm.localizedString(key: "Automatically start DockMinimizer when you log in", comment: "") }
+    static var middleClickTitle: String {
+        lm.text(
+            ru: "Клик колёсиком по Доку",
+            en: "Middle-Click on Dock",
+            zh: "Dock 图标中键点击",
+            uk: "Клік коліщатком по Доку"
+        )
+    }
 
-    // Show Panel on Launch
-    static var showPanelOnLaunch: String { lm.localizedString(key: "Show Panel on Launch", comment: "") }
-    static var showPanelOnLaunchHelp: String { lm.localizedString(key: "Automatically open the settings panel when app starts", comment: "") }
+    static var middleClickSubtitle: String {
+        lm.text(
+            ru: "Действие при среднем клике по иконке приложения",
+            en: "Action when middle-clicking an application icon",
+            zh: "中键点击应用程序图标时的操作",
+            uk: "Дія при середньому кліку по іконці програми"
+        )
+    }
 
-    // Permission Alerts
-    static var permissionRequiredTitle: String { lm.localizedString(key: "Accessibility Permission Required", comment: "") }
-    static var permissionRequiredMessage: String { lm.localizedString(key: "DockMinimizer requires accessibility permission to monitor and operate windows of other applications.\n\nPlease go to:\nSystem Settings → Privacy & Security → Accessibility\n\nClick the \"+\" button to add DockMinimizer to the authorized list.", comment: "") }
-    static var later: String { lm.localizedString(key: "Later", comment: "") }
+    static var middleClickNewWindow: String {
+        lm.text(
+            ru: "Новое окно (⌘N)",
+            en: "New Window (⌘N)",
+            zh: "新建窗口 (⌘N)",
+            uk: "Нове вікно (⌘N)"
+        )
+    }
 
-    // Permission Status Dialog
-    static var permissionGrantedTitle: String { lm.localizedString(key: "Permission Granted", comment: "") }
-    static var permissionGrantedMessage: String { lm.localizedString(key: "DockMinimizer has been granted accessibility permission and can work properly.", comment: "") }
-    static var ok: String { lm.localizedString(key: "OK", comment: "") }
+    static var middleClickQuitApp: String {
+        lm.text(
+            ru: "Завершить (⌘Q)",
+            en: "Quit App (⌘Q)",
+            zh: "退出程序 (⌘Q)",
+            uk: "Завершити (⌘Q)"
+        )
+    }
 
-    // Status Bar Tooltip
-    static var statusBarTooltip: String { lm.localizedString(key: "DockMinimizer - Click Dock icon to minimize windows", comment: "") }
+    static var middleClickHideApp: String {
+        lm.text(
+            ru: "Скрыть (⌘H)",
+            en: "Hide (⌘H)",
+            zh: "隐藏程序 (⌘H)",
+            uk: "Сховати (⌘H)"
+        )
+    }
 
-    // Permission Notifications
-    static var permissionGrantedNotificationTitle: String { lm.localizedString(key: "Permission Granted", comment: "") }
-    static var permissionGrantedNotificationBody: String { lm.localizedString(key: "Accessibility permission has been granted, DockMinimizer is now active.", comment: "") }
-    static var permissionRevoked: String { lm.localizedString(key: "Permission Revoked", comment: "") }
-    static var permissionRevokedMessage: String { lm.localizedString(key: "Accessibility permission has been revoked, DockMinimizer has stopped working.", comment: "") }
+    static var middleClickDisabled: String {
+        lm.text(
+            ru: "Отключено",
+            en: "Disabled",
+            zh: "已禁用",
+            uk: "Вимкнено"
+        )
+    }
 
-    // Update
-    static var checkForUpdates: String { lm.localizedString(key: "Check for Updates...", comment: "") }
-    static var updateAvailable: String { lm.localizedString(key: "Update Available!", comment: "") }
-    static var currentVersion: String { lm.localizedString(key: "Current Version", comment: "") }
-    static var latestVersion: String { lm.localizedString(key: "Latest Version", comment: "") }
-    static var checkingForUpdates: String { lm.localizedString(key: "Checking for updates...", comment: "") }
-    static var alreadyUpToDate: String { lm.localizedString(key: "You're up to date!", comment: "") }
-    static var updateError: String { lm.localizedString(key: "Failed to check for updates", comment: "") }
-    static var downloadUpdate: String { lm.localizedString(key: "Download Update", comment: "") }
-    static var viewOnGitHub: String { lm.localizedString(key: "View on GitHub", comment: "") }
-    static var autoCheckPolicy: String { lm.localizedString(key: "Auto Check Policy", comment: "") }
-    static var onStartup: String { lm.localizedString(key: "On Startup", comment: "") }
-    static var daily: String { lm.localizedString(key: "Daily", comment: "") }
-    static var weekly: String { lm.localizedString(key: "Weekly", comment: "") }
-    static var disabled: String { lm.localizedString(key: "Disabled", comment: "") }
-    static var checkNow: String { lm.localizedString(key: "Check Now", comment: "") }
-    static var visitGitHub: String { lm.localizedString(key: "Visit GitHub", comment: "") }
+    static var quitOnCloseTitle: String {
+        lm.text(
+            ru: "Полное закрытие по крестику (⌘Q)",
+            en: "Quit on Close Button (⌘Q)",
+            zh: "点击红叉彻底退出 (⌘Q)",
+            uk: "Повне закриття по хрестику (⌘Q)"
+        )
+    }
+
+    static var quitOnCloseSubtitle: String {
+        lm.text(
+            ru: "Завершает приложение, когда закрывается его последнее окно. Вкладки сохраняются!",
+            en: "Quits the app when its last window is closed. Tabs and sessions are preserved!",
+            zh: "关闭最后一个窗口时彻底退出应用。标签页和会话完好保留！",
+            uk: "Завершує програму при закритті її останнього вікна. Вкладки зберігаються!"
+        )
+    }
+
+    static var exclusionsTitle: String {
+        lm.text(
+            ru: "Исключения закрытия (⌘Q)",
+            en: "Close Exclusions (⌘Q)",
+            zh: "退出排除列表 (⌘Q)",
+            uk: "Винятки закриття (⌘Q)"
+        )
+    }
+
+    static func exclusionsSubtitle(count: Int) -> String {
+        switch lm.activeLanguageCode {
+        case "en":
+            return "\(count) apps stay running in background"
+        case "zh-Hans":
+            return "\(count) 个应用保持后台运行"
+        case "uk":
+            return "\(count) програм залишаються працювати у фоні"
+        default:
+            return "\(count) приложений остаются работать в фоне"
+        }
+    }
+
+    static var configure: String {
+        lm.text(
+            ru: "Настроить...",
+            en: "Configure...",
+            zh: "设置...",
+            uk: "Налаштувати..."
+        )
+    }
+
+    // Section 2: System Settings
+    static var launchAtLoginTitle: String {
+        lm.text(
+            ru: "Запуск при входе в систему",
+            en: "Launch at Login",
+            zh: "开机自启动",
+            uk: "Запуск під час входу в систему"
+        )
+    }
+
+    static var launchAtLoginSubtitle: String {
+        lm.text(
+            ru: "Автоматически запускать DockFlow при включении Mac",
+            en: "Automatically start DockFlow when you log in",
+            zh: "Mac 开机时自动启动 DockFlow",
+            uk: "Автоматично запускати DockFlow при включенні Mac"
+        )
+    }
+
+    static var showPanelOnLaunchTitle: String {
+        lm.text(
+            ru: "Показывать окно при старте",
+            en: "Show Panel on Launch",
+            zh: "启动时显示设置窗口",
+            uk: "Показувати вікно під час старту"
+        )
+    }
+
+    static var showPanelOnLaunchSubtitle: String {
+        lm.text(
+            ru: "Открывать это окно настроек при каждом запуске системы",
+            en: "Open this settings window whenever the system starts",
+            zh: "每次系统启动时显示此设置窗口",
+            uk: "Відкривати це вікно налаштувань під час кожного запуску системи"
+        )
+    }
+
+    static var languageTitle: String {
+        lm.text(
+            ru: "Язык интерфейса",
+            en: "Interface Language",
+            zh: "界面语言",
+            uk: "Мова інтерфейсу"
+        )
+    }
+
+    static var languageSubtitle: String {
+        lm.text(
+            ru: "Выберите язык приложения",
+            en: "Select application language",
+            zh: "选择应用程序语言",
+            uk: "Виберіть мову програми"
+        )
+    }
+
+    // Section 3: Accessibility
+    static var accessibilityTitle: String {
+        lm.text(
+            ru: "Универсальный доступ",
+            en: "Accessibility",
+            zh: "辅助功能权限",
+            uk: "Універсальний доступ"
+        )
+    }
+
+    static var accessibilityGranted: String {
+        lm.text(
+            ru: "Доступ предоставлен, все системные функции активны",
+            en: "Permission granted, all system features active",
+            zh: "已获得权限，所有系统功能正常运作",
+            uk: "Доступ надано, всі системні функції активні"
+        )
+    }
+
+    static var accessibilityRequired: String {
+        lm.text(
+            ru: "Требуется разрешение для перехвата кликов по Доку",
+            en: "Permission required to intercept Dock clicks",
+            zh: "需要权限以检测和处理 Dock 点击",
+            uk: "Потрібен дозвіл для перехоплення кліків по Доку"
+        )
+    }
+
+    static var setup: String {
+        lm.text(
+            ru: "Настроить",
+            en: "Configure",
+            zh: "去设置",
+            uk: "Налаштувати"
+        )
+    }
+
+    // Footer
+    static var close: String {
+        lm.text(
+            ru: "Закрыть",
+            en: "Close",
+            zh: "关闭",
+            uk: "Закрити"
+        )
+    }
+
+    static var quitApp: String {
+        lm.text(
+            ru: "Завершить",
+            en: "Quit",
+            zh: "退出程序",
+            uk: "Завершити"
+        )
+    }
+
+    static var done: String {
+        lm.text(
+            ru: "Готово",
+            en: "Done",
+            zh: "完成",
+            uk: "Готово"
+        )
+    }
+
+    // Exclusions Sheet
+    static var exclusionsHeaderTitle: String {
+        lm.text(
+            ru: "Исключения закрытия по крестику",
+            en: "Quit on Close Exclusions",
+            zh: "红叉退出排除列表",
+            uk: "Винятки закриття по хрестику"
+        )
+    }
+
+    static var exclusionsHeaderSubtitle: String {
+        lm.text(
+            ru: "Эти приложения не завершаются (⌘Q) при закрытии окна и продолжают работать в фоне",
+            en: "These apps will not quit (⌘Q) when their window is closed and will stay in background",
+            zh: "关闭窗口时这些应用不会退出 (⌘Q)，而是继续在后台运行",
+            uk: "Ці програми не завершуються (⌘Q) при закритті вікна та продовжують працювати у фоні"
+        )
+    }
+
+    static var exclusionsEmptyTitle: String {
+        lm.text(
+            ru: "Список исключений пуст",
+            en: "Exclusions list is empty",
+            zh: "排除列表为空",
+            uk: "Список винятків порожній"
+        )
+    }
+
+    static var exclusionsEmptySubtitle: String {
+        lm.text(
+            ru: "Все приложения будут завершаться по крестику",
+            en: "All applications will quit when close button is clicked",
+            zh: "所有应用在点击红叉时都将退出",
+            uk: "Всі програми будуть завершуватися по хрестику"
+        )
+    }
+
+    static var quickAdd: String {
+        lm.text(
+            ru: "Быстрое добавление:",
+            en: "Quick Add:",
+            zh: "快速添加：",
+            uk: "Швидке додавання:"
+        )
+    }
+
+    static var addApplication: String {
+        lm.text(
+            ru: "Добавить приложение...",
+            en: "Add Application...",
+            zh: "添加应用程序...",
+            uk: "Додати програму..."
+        )
+    }
+
+    static var deleteHelp: String {
+        lm.text(
+            ru: "Удалить из исключений",
+            en: "Remove from exclusions",
+            zh: "从排除列表中移除",
+            uk: "Видалити з винятків"
+        )
+    }
+
+    static var musicPreset: String {
+        lm.text(
+            ru: "Музыка",
+            en: "Music",
+            zh: "音乐",
+            uk: "Музика"
+        )
+    }
+
+    // Menu Bar Menu
+    static var dockFlowActive: String {
+        lm.text(
+            ru: "DockFlow активен",
+            en: "DockFlow is active",
+            zh: "DockFlow 运行中",
+            uk: "DockFlow активний"
+        )
+    }
+
+    static var settings: String {
+        lm.text(
+            ru: "Настройки...",
+            en: "Settings...",
+            zh: "设置...",
+            uk: "Налаштування..."
+        )
+    }
+
+    static var quitOnCloseMenu: String {
+        lm.text(
+            ru: "Закрывать по крестику (⌘Q)",
+            en: "Quit on close (⌘Q)",
+            zh: "红叉退出 (⌘Q)",
+            uk: "Закривати по хрестику (⌘Q)"
+        )
+    }
+
+    static var checkPermissions: String {
+        lm.text(
+            ru: "Проверить разрешения",
+            en: "Check Permissions",
+            zh: "检查权限",
+            uk: "Перевірити дозволи"
+        )
+    }
+
+    static var viewLogs: String {
+        lm.text(
+            ru: "Журнал работы",
+            en: "View Logs",
+            zh: "查看日志",
+            uk: "Журнал роботи"
+        )
+    }
+
+    static var checkForUpdates: String {
+        lm.text(
+            ru: "Проверить обновления...",
+            en: "Check for Updates...",
+            zh: "检查更新...",
+            uk: "Перевірити оновлення..."
+        )
+    }
+
+    static var quit: String {
+        lm.text(
+            ru: "Завершить DockFlow (⌘Q)",
+            en: "Quit DockFlow (⌘Q)",
+            zh: "退出 DockFlow (⌘Q)",
+            uk: "Завершити DockFlow (⌘Q)"
+        )
+    }
+
+    static var updateAvailable: String {
+        lm.text(
+            ru: "Доступно обновление",
+            en: "Update Available",
+            zh: "有新版本可用",
+            uk: "Доступне оновлення"
+        )
+    }
+
+    static var updateError: String {
+        lm.text(
+            ru: "Ошибка проверки обновлений",
+            en: "Update Check Error",
+            zh: "检查更新失败",
+            uk: "Помилка перевірки оновлень"
+        )
+    }
+
+    static var alreadyUpToDate: String {
+        lm.text(
+            ru: "У вас установлена последняя версия",
+            en: "You're up to date",
+            zh: "已是最新版本",
+            uk: "У вас встановлена остання версія"
+        )
+    }
+
+    static var currentVersion: String {
+        lm.text(
+            ru: "Текущая версия",
+            en: "Current version",
+            zh: "当前版本",
+            uk: "Поточна версія"
+        )
+    }
+
+    // System alerts & notifications
+    static var permissionRequiredTitle: String {
+        lm.text(
+            ru: "Требуется Универсальный доступ",
+            en: "Accessibility Permission Required",
+            zh: "需要辅助功能权限",
+            uk: "Потрібен Універсальний доступ"
+        )
+    }
+
+    static var permissionRequiredMessage: String {
+        lm.text(
+            ru: "DockFlow нужен доступ к Универсальному доступу для сворачивания окон через Док и полного закрытия по крестику.",
+            en: "DockFlow requires accessibility permission to monitor and operate windows of applications.",
+            zh: "DockFlow 需要辅助功能权限以监控和操作应用程序窗口。",
+            uk: "DockFlow потрібен доступ до Універсального доступу для згортання вікон через Док та повного закриття по хрестику."
+        )
+    }
+
+    static var openSystemSettings: String {
+        lm.text(
+            ru: "Открыть Системные настройки",
+            en: "Open System Settings",
+            zh: "打开系统设置",
+            uk: "Відкрити Системні параметри"
+        )
+    }
+
+    static var later: String {
+        lm.text(
+            ru: "Позже",
+            en: "Later",
+            zh: "稍后",
+            uk: "Пізніше"
+        )
+    }
+
+    static var permissionGrantedTitle: String {
+        lm.text(
+            ru: "Доступ предоставлен",
+            en: "Permission Granted",
+            zh: "权限已获得",
+            uk: "Доступ надано"
+        )
+    }
+
+    static var permissionGrantedMessage: String {
+        lm.text(
+            ru: "DockFlow получил разрешение Универсального доступа и полностью готов к работе.",
+            en: "DockFlow has been granted accessibility permission and is fully operational.",
+            zh: "DockFlow 已获得辅助功能权限，所有功能正常可用。",
+            uk: "DockFlow отримав дозвіл Універсального доступу і повністю готовий до роботи."
+        )
+    }
+
+    static var permissionGrantedNotificationTitle: String {
+        lm.text(
+            ru: "Доступ предоставлен",
+            en: "Permission Granted",
+            zh: "权限已授权",
+            uk: "Доступ надано"
+        )
+    }
+
+    static var permissionGrantedNotificationBody: String {
+        lm.text(
+            ru: "Разрешение получено, все функции DockFlow активны.",
+            en: "Accessibility permission granted, DockFlow is now active.",
+            zh: "已获得辅助功能权限，DockFlow 已启用。",
+            uk: "Дозвіл отримано, всі функції DockFlow активні."
+        )
+    }
+
+    static var permissionRevoked: String {
+        lm.text(
+            ru: "Доступ отозван",
+            en: "Permission Revoked",
+            zh: "权限被撤销",
+            uk: "Доступ відкликано"
+        )
+    }
+
+    static var permissionRevokedMessage: String {
+        lm.text(
+            ru: "Разрешение Универсального доступа отозвано в настройках.",
+            en: "Accessibility permission was revoked in system settings.",
+            zh: "系统设置中辅助功能权限已被撤销。",
+            uk: "Дозвіл Універсального доступу відкликано в налаштуваннях."
+        )
+    }
+
+    static var ok: String {
+        lm.text(
+            ru: "ОК",
+            en: "OK",
+            zh: "确定",
+            uk: "ОК"
+        )
+    }
+
+    static var settingsWindowTitle: String { "DockFlow" }
 }

@@ -88,6 +88,7 @@ struct SettingRow<Content: View>: View {
 // MARK: - Exclusions Sheet View
 
 struct ExclusionsSheetView: View {
+    @ObservedObject var lm = LocalizationManager.shared
     @ObservedObject var exclusionManager = AppExclusionManager.shared
 
     var body: some View {
@@ -104,9 +105,9 @@ struct ExclusionsSheetView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Исключения закрытия по крестику")
+                    Text(L10n.exclusionsHeaderTitle)
                         .font(.system(size: 15, weight: .bold))
-                    Text("Эти приложения не завершаются (⌘Q) при закрытии окна и продолжают работать в фоне")
+                    Text(L10n.exclusionsHeaderSubtitle)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -126,10 +127,10 @@ struct ExclusionsSheetView: View {
                     Image(systemName: "tray")
                         .font(.system(size: 36))
                         .foregroundColor(.secondary.opacity(0.6))
-                    Text("Список исключений пуст")
+                    Text(L10n.exclusionsEmptyTitle)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.secondary)
-                    Text("Все приложения будут завершаться по крестику")
+                    Text(L10n.exclusionsEmptySubtitle)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary.opacity(0.8))
                     Spacer()
@@ -164,7 +165,7 @@ struct ExclusionsSheetView: View {
                                         .font(.system(size: 12))
                                 }
                                 .buttonStyle(.plain)
-                                .help("Удалить из исключений")
+                                .help(L10n.deleteHelp)
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
@@ -186,12 +187,12 @@ struct ExclusionsSheetView: View {
                 ("Telegram", "ru.keepcoder.Telegram"),
                 ("Discord", "com.hnc.Discord"),
                 ("Spotify", "com.spotify.client"),
-                ("Музыка", "com.apple.Music")
+                (L10n.musicPreset, "com.apple.Music")
             ].filter { !exclusionManager.isExcluded(bundleIdentifier: $0.1) }
 
             if !suggestions.isEmpty {
                 HStack(spacing: 8) {
-                    Text("Быстрое добавление:")
+                    Text(L10n.quickAdd)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
 
@@ -216,14 +217,14 @@ struct ExclusionsSheetView: View {
                 Button(action: {
                     exclusionManager.addAppViaFilePicker()
                 }) {
-                    Label("Добавить приложение...", systemImage: "plus")
+                    Label(L10n.addApplication, systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
 
                 Spacer()
 
-                Button("Готово") {
+                Button(L10n.done) {
                     exclusionManager.showSheet = false
                 }
                 .controlSize(.small)
@@ -240,6 +241,7 @@ struct ExclusionsSheetView: View {
 // MARK: - Modern Settings View (macOS 27 Aesthetic)
 
 struct SettingsView: View {
+    @ObservedObject private var lm = LocalizationManager.shared
     @AppStorage("loggingEnabled") private var loggingEnabled = false
     @AppStorage("showPanelOnLaunch") private var showPanelOnLaunch = false
     @AppStorage("quitOnCloseButton") private var quitOnCloseButton = true
@@ -275,7 +277,7 @@ struct SettingsView: View {
                     Text("DockFlow")
                         .font(.system(size: 20, weight: .bold, design: .rounded))
 
-                    Text("Управление Доком и закрытие окон (⌘Q)")
+                    Text(L10n.subtitle)
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
@@ -285,7 +287,7 @@ struct SettingsView: View {
                     Circle()
                         .fill(Color.green)
                         .frame(width: 8, height: 8)
-                    Text("Работает в фоновом режиме")
+                    Text(L10n.runningInBackground)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
                 }
@@ -306,8 +308,8 @@ struct SettingsView: View {
                         SettingRow(
                             iconName: "sparkles",
                             iconColor: .blue,
-                            title: "Эффект Джинна в Доке",
-                            subtitle: "Клик по иконке активного приложения в Доке плавно сворачивает его с анимацией"
+                            title: L10n.genieTitle,
+                            subtitle: L10n.genieSubtitle
                         ) {
                             Toggle("", isOn: .constant(true))
                                 .labelsHidden()
@@ -320,8 +322,8 @@ struct SettingsView: View {
                         SettingRow(
                             iconName: "hand.tap.fill",
                             iconColor: .orange,
-                            title: "Тактильный отклик (Haptic)",
-                            subtitle: "Виброотклик трекпада Force Touch при сворачивании и закрытии окон"
+                            title: L10n.hapticTitle,
+                            subtitle: L10n.hapticSubtitle
                         ) {
                             Toggle("", isOn: $hapticFeedbackEnabled)
                                 .labelsHidden()
@@ -333,14 +335,14 @@ struct SettingsView: View {
                         SettingRow(
                             iconName: "computermouse.fill",
                             iconColor: .teal,
-                            title: "Клик колёсиком по Доку",
-                            subtitle: "Действие при среднем клике по иконке приложения"
+                            title: L10n.middleClickTitle,
+                            subtitle: L10n.middleClickSubtitle
                         ) {
                             Picker("", selection: $middleClickAction) {
-                                Text("Новое окно (⌘N)").tag("newWindow")
-                                Text("Завершить (⌘Q)").tag("quitApp")
-                                Text("Скрыть (⌘H)").tag("hideApp")
-                                Text("Отключено").tag("disabled")
+                                Text(L10n.middleClickNewWindow).tag("newWindow")
+                                Text(L10n.middleClickQuitApp).tag("quitApp")
+                                Text(L10n.middleClickHideApp).tag("hideApp")
+                                Text(L10n.middleClickDisabled).tag("disabled")
                             }
                             .labelsHidden()
                             .frame(width: 155)
@@ -352,8 +354,8 @@ struct SettingsView: View {
                         SettingRow(
                             iconName: "xmark.circle.fill",
                             iconColor: .red,
-                            title: "Полное закрытие по крестику (⌘Q)",
-                            subtitle: "Завершает приложение, когда закрывается его последнее окно. Вкладки сохраняются!"
+                            title: L10n.quitOnCloseTitle,
+                            subtitle: L10n.quitOnCloseSubtitle
                         ) {
                             Toggle("", isOn: $quitOnCloseButton)
                                 .labelsHidden()
@@ -366,10 +368,10 @@ struct SettingsView: View {
                             SettingRow(
                                 iconName: "app.badge.checkmark",
                                 iconColor: .purple,
-                                title: "Исключения закрытия (⌘Q)",
-                                subtitle: "\(exclusionManager.excludedBundleIDs.count) приложений остаются работать в фоне"
+                                title: L10n.exclusionsTitle,
+                                subtitle: L10n.exclusionsSubtitle(count: exclusionManager.excludedBundleIDs.count)
                             ) {
-                                Button("Настроить...") {
+                                Button(L10n.configure) {
                                     exclusionManager.showSheet = true
                                 }
                                 .controlSize(.small)
@@ -390,8 +392,8 @@ struct SettingsView: View {
                         SettingRow(
                             iconName: "bolt.fill",
                             iconColor: .green,
-                            title: "Запуск при входе в систему",
-                            subtitle: "Автоматически запускать DockFlow при включении Mac"
+                            title: L10n.launchAtLoginTitle,
+                            subtitle: L10n.launchAtLoginSubtitle
                         ) {
                             Toggle("", isOn: Binding(
                                 get: { launchAtLoginManager.isEnabled },
@@ -406,11 +408,29 @@ struct SettingsView: View {
                         SettingRow(
                             iconName: "macwindow",
                             iconColor: .indigo,
-                            title: "Показывать окно при старте",
-                            subtitle: "Открывать это окно настроек при каждом запуске системы"
+                            title: L10n.showPanelOnLaunchTitle,
+                            subtitle: L10n.showPanelOnLaunchSubtitle
                         ) {
                             Toggle("", isOn: $showPanelOnLaunch)
                                 .labelsHidden()
+                        }
+
+                        Divider()
+                            .padding(.leading, 58)
+
+                        SettingRow(
+                            iconName: "globe",
+                            iconColor: .cyan,
+                            title: L10n.languageTitle,
+                            subtitle: L10n.languageSubtitle
+                        ) {
+                            Picker("", selection: $lm.currentLanguage) {
+                                ForEach(AppLanguage.allCases) { lang in
+                                    Text(lang.displayName).tag(lang)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 155)
                         }
                     }
                     .background(
@@ -427,17 +447,17 @@ struct SettingsView: View {
                         SettingRow(
                             iconName: "hand.raised.fill",
                             iconColor: .purple,
-                            title: "Универсальный доступ",
+                            title: L10n.accessibilityTitle,
                             subtitle: dockMonitor.isFullyFunctional
-                                ? "Доступ предоставлен, все системные функции активны"
-                                : "Требуется разрешение для перехвата кликов по Доку"
+                                ? L10n.accessibilityGranted
+                                : L10n.accessibilityRequired
                         ) {
                             if dockMonitor.isFullyFunctional {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.green)
                                     .font(.system(size: 18))
                             } else {
-                                Button("Настроить") {
+                                Button(L10n.setup) {
                                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                                         NSWorkspace.shared.open(url)
                                     }
@@ -470,13 +490,13 @@ struct SettingsView: View {
 
                 Spacer()
 
-                Button("Закрыть") {
+                Button(L10n.close) {
                     NSApplication.shared.keyWindow?.close()
                 }
                 .controlSize(.small)
                 .keyboardShortcut(.cancelAction)
 
-                Button("Завершить") {
+                Button(L10n.quitApp) {
                     NSApplication.shared.terminate(nil)
                 }
                 .controlSize(.small)

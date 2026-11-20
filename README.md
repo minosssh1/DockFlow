@@ -49,6 +49,7 @@
 | 🛡️ **Список исключений** | Telegram, Discord, Spotify, Музыка или любые выбранные вами приложения остаются работать в фоне. |
 | 🖱️ **Клик колёсиком (Middle Click)** | Нажатие средней кнопкой мыши по Доку открывает **новое окно (⌘N)**, завершает (⌘Q) или скрывает приложение. |
 | 📳 **Тактильный отклик (Haptic)** | Физический виброотклик трекпада Force Touch / Magic Trackpad при сворачивании и закрытии окон. |
+| 🌐 **Мультиязычность** | Полная локализация интерфейса: Русский, English, 简体中文 (Китайский) и Українська. |
 | 🔋 **0.0% CPU в фоне** | Полностью реактивная архитектура без постоянных таймеров — нулевой расход батареи и полная поддержка App Nap. |
 | 💾 **Сохранение вкладок** | Браузеры (Safari, Chrome и др.) сохраняют открытые вкладки и сессии при закрытии по крестику. |
 | 🔄 **OTA автообновление** | Встроенное обновление приложения прямо из менюбара с отображением прогресса в реальном времени. |
@@ -85,6 +86,7 @@
 3. Exclude background apps (Telegram, Discord, Spotify) so they stay active when closed.
 4. Middle-click any Dock icon to trigger quick actions like opening a **New Window (⌘N)**.
 5. Zero idle CPU usage (**0.0%**) and full support for macOS App Nap and battery sleep states.
+6. Multilingual interface: English, Russian (Русский), Simplified Chinese (简体中文), and Ukrainian (Українська) with real-time in-app switching.
 
 <p align="center">
   <img src="assets/screenshots/settings_main.png" width="420" alt="DockFlow Main Settings" />

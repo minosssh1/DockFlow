@@ -86,7 +86,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard !permissionAlertShown else { return }
         permissionAlertShown = true
 
-        DispatchQueue.main.async { [weak self] in
+        DispatchQueue.main.async {
             let alert = NSAlert()
             alert.messageText = L10n.permissionRequiredTitle
             alert.informativeText = L10n.permissionRequiredMessage
@@ -130,13 +130,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let statusMenuItem = NSMenuItem(title: "DockFlow активен", action: nil, keyEquivalent: "")
+        let statusMenuItem = NSMenuItem(title: L10n.dockFlowActive, action: nil, keyEquivalent: "")
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
 
         let quitOnCloseKey = "quitOnCloseButton"
         let isQuitOnClose = UserDefaults.standard.object(forKey: quitOnCloseKey) == nil || UserDefaults.standard.bool(forKey: quitOnCloseKey)
-        let quitOnCloseItem = NSMenuItem(title: "Закрывать по крестику (⌘Q)", action: #selector(toggleQuitOnClose), keyEquivalent: "")
+        let quitOnCloseItem = NSMenuItem(title: L10n.quitOnCloseMenu, action: #selector(toggleQuitOnClose), keyEquivalent: "")
         quitOnCloseItem.target = self
         quitOnCloseItem.state = isQuitOnClose ? .on : .off
         menu.addItem(quitOnCloseItem)
