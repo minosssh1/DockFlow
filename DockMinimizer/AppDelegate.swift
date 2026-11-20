@@ -8,6 +8,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var dockMonitor: DockMonitor?
     private var permissionAlertShown = false
     private var settingsWindow: NSWindow?
+    private var updateWindow: NSWindow?
+    private var updateDownloader: UpdateDownloader?
     private var cancellables = Set<AnyCancellable>()
     private var updateService = UpdateService.shared
 
@@ -215,68 +217,96 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
+        let targetVersion = updateService.latestVersion ?? ""
+        let viewModel = UpdateProgressViewModel()
+        let hostingView = NSHostingView(rootView: UpdateProgressView(viewModel: viewModel, targetVersion: targetVersion))
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.center()
+        window.title = "Обновление DockFlow"
+        window.contentView = hostingView
+        window.level = .floating
+        window.isReleasedWhenClosed = false
+        self.updateWindow = window
+
         NSApplication.shared.activate(ignoringOtherApps: true)
-        let progressAlert = NSAlert()
-        progressAlert.messageText = "Обновление DockFlow"
-        progressAlert.informativeText = "Загрузка новой версии \(updateService.latestVersion ?? "")...\nПриложение обновится и перезапустится автоматически."
-        progressAlert.alertStyle = .informational
+        window.makeKeyAndOrderFront(nil)
 
-        let indicator = NSProgressIndicator(frame: NSRect(x: 0, y: 0, width: 280, height: 20))
-        indicator.isIndeterminate = true
-        indicator.startAnimation(nil)
-        progressAlert.accessoryView = indicator
-        progressAlert.addButton(withTitle: "Отмена")
+        let downloader = UpdateDownloader()
+        self.updateDownloader = downloader
 
-        let isCancelled = OSAllocatedUnfairLock(initialState: false)
-        let downloadTask = URLSession.shared.downloadTask(with: downloadURL) { [weak self] localURL, response, error in
-            if isCancelled.withLock({ $0 }) { return }
+        viewModel.onCancel = { [weak self, weak window] in
+            downloader.cancel()
+            window?.close()
+            self?.updateWindow = nil
+            self?.updateDownloader = nil
+        }
 
-            if let error = error {
-                if (error as NSError).code == NSURLErrorCancelled { return }
-                DispatchQueue.main.async {
-                    NSApp.stopModal()
-                    let errAlert = NSAlert()
-                    errAlert.messageText = "Ошибка загрузки обновления"
-                    errAlert.informativeText = error.localizedDescription
-                    errAlert.alertStyle = .warning
-                    errAlert.addButton(withTitle: "Открыть страницу релиза")
-                    errAlert.addButton(withTitle: "ОК")
-                    if errAlert.runModal() == .alertFirstButtonReturn {
-                        self?.updateService.openReleasePage()
+        viewModel.onManualDownload = { [weak self, weak window] in
+            window?.close()
+            self?.updateWindow = nil
+            self?.updateDownloader = nil
+            self?.updateService.openReleasePage()
+        }
+
+        viewModel.stageTitle = "Этап 1 из 3: Подключение к GitHub..."
+        viewModel.stageDetail = "Установка безопасного соединения..."
+        viewModel.isIndeterminate = true
+
+        downloader.onProgress = { progress, written, total in
+            viewModel.isIndeterminate = false
+            viewModel.progress = progress
+            viewModel.stageTitle = "Этап 1 из 3: Скачивание обновления..."
+
+            let mbWritten = Double(written) / (1024 * 1024)
+            let mbTotal = Double(total) / (1024 * 1024)
+            if total > 0 {
+                viewModel.stageDetail = String(format: "Загружено %.1f МБ из %.1f МБ (%.0f%%)", mbWritten, mbTotal, progress * 100)
+            } else {
+                viewModel.stageDetail = String(format: "Загружено %.1f МБ", mbWritten)
+            }
+        }
+
+        downloader.onComplete = { [weak self] result in
+            switch result {
+            case .success(let tempDMG):
+                viewModel.stageTitle = "Этап 2 из 3: Проверка и установка..."
+                viewModel.stageDetail = "Монтирование образа и замена файлов..."
+                viewModel.progress = 1.0
+                viewModel.isIndeterminate = true
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    viewModel.stageTitle = "Этап 3 из 3: Перезапуск..."
+                    viewModel.stageDetail = "Запуск обновленной версии DockFlow..."
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self?.updateWindow?.close()
+                        self?.updateWindow = nil
+                        self?.updateService.applyUpdateAndRestart(dmgPath: tempDMG.path)
                     }
                 }
-                return
-            }
 
-            guard let localURL = localURL else { return }
-            let tempDMG = "/tmp/DockFlow_Update.dmg"
-            try? FileManager.default.removeItem(atPath: tempDMG)
-            do {
-                try FileManager.default.copyItem(at: localURL, to: URL(fileURLWithPath: tempDMG))
-            } catch {
-                DispatchQueue.main.async {
-                    NSApp.stopModal()
-                    let errAlert = NSAlert()
-                    errAlert.messageText = "Ошибка сохранения обновления"
-                    errAlert.informativeText = error.localizedDescription
-                    errAlert.alertStyle = .warning
-                    errAlert.addButton(withTitle: "ОК")
-                    errAlert.runModal()
-                }
-                return
-            }
-
-            DispatchQueue.main.async {
-                NSApp.stopModal()
-                self?.updateService.applyUpdateAndRestart(dmgPath: tempDMG)
+            case .failure(let error):
+                viewModel.isFailed = true
+                viewModel.stageTitle = "Ошибка загрузки обновления"
+                viewModel.stageDetail = error.localizedDescription
             }
         }
-        downloadTask.resume()
 
-        if progressAlert.runModal() == .alertFirstButtonReturn {
-            isCancelled.withLock { $0 = true }
-            downloadTask.cancel()
+        viewModel.onRetry = {
+            viewModel.isFailed = false
+            viewModel.stageTitle = "Этап 1 из 3: Повторное подключение..."
+            viewModel.stageDetail = "Инициализация..."
+            viewModel.isIndeterminate = true
+            downloader.start(url: downloadURL)
         }
+
+        downloader.start(url: downloadURL)
     }
 
     @objc private func checkForUpdates() {

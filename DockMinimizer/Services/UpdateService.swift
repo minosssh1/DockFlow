@@ -258,6 +258,7 @@ class UpdateService: ObservableObject {
         if [ -d "$MOUNT_DIR/DockFlow.app" ]; then
             rm -rf "$TARGET_APP"
             cp -R "$MOUNT_DIR/DockFlow.app" "$TARGET_APP"
+            xattr -dr com.apple.quarantine "$TARGET_APP" 2>/dev/null || true
             codesign --force --deep -s - -r="designated => identifier \\\"com.jacktony.dockminimizer\\\"" "$TARGET_APP" 2>/dev/null || true
         fi
 
