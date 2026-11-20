@@ -32,22 +32,15 @@ private func globalEventCallback(proxy: CGEventTapProxy, type: CGEventType, even
     }
 
     if type == .tapDisabledByUserInput {
-        LogService.shared.log(level: .warning, category: "DockMonitor", message: "[回调] 检测到 tapDisabledByUserInput")
-        monitor.handleTapDisabled()
+        if let tap = monitor.eventTap {
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
         return Unmanaged.passUnretained(event)
     }
 
     // 检查 tap 是否仍然处于启用状态，如果被意外禁用则重新激活
     if let tap = monitor.eventTap, !CGEvent.tapIsEnabled(tap: tap) {
-        LogService.shared.log(level: .warning, category: "DockMonitor", message: "[回调] tap 处于非激活状态，已重新激活")
         CGEvent.tapEnable(tap: tap, enable: true)
-    }
-
-    // 使用系统权限状态进行检查
-    if !AXIsProcessTrusted() {
-        LogService.shared.log(level: .warning, category: "DockMonitor", message: "[回调] 权限已被系统撤销，停止 eventTap")
-        monitor.handleTapDisabled()
-        return Unmanaged.passUnretained(event)
     }
 
     let consumed = monitor.handleEvent(proxy: proxy, type: type, event: event)
@@ -248,6 +241,7 @@ class DockMonitor: ObservableObject {
 
         let dockPID = dockApp.processIdentifier
         let dockAppRef = AXUIElementCreateApplication(dockPID)
+        AXUIElementSetMessagingTimeout(dockAppRef, 0.05)
 
         var childrenValue: AnyObject?
         let childrenResult = AXUIElementCopyAttributeValue(dockAppRef, kAXChildrenAttribute as CFString, &childrenValue)
@@ -323,6 +317,7 @@ class DockMonitor: ObservableObject {
 
     private func handleCloseButtonClick(at location: CGPoint) -> Bool {
         let sys = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(sys, 0.04)
         var hitElem: AXUIElement?
         guard AXUIElementCopyElementAtPosition(sys, Float(location.x), Float(location.y), &hitElem) == .success,
               let element = hitElem else {

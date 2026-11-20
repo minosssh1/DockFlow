@@ -70,12 +70,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func checkAccessibilityPermission() {
-        let hasPermission = AXIsProcessTrusted()
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        let hasPermission = AXIsProcessTrustedWithOptions(options)
 
         if !hasPermission {
             showPermissionAlert()
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(options)
         }
     }
 
