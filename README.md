@@ -8,11 +8,13 @@
   <img src="https://img.shields.io/badge/Architecture-Apple%20Silicon%20(arm64)-orange?style=for-the-badge" alt="Architecture" />
   <img src="https://img.shields.io/badge/CPU%20Usage-0.0%25%20Idle-brightgreen?style=for-the-badge" alt="CPU Usage" />
   <img src="https://img.shields.io/badge/Swift-6.4-F05138?style=for-the-badge&logo=swift" alt="Swift" />
+  <img src="https://img.shields.io/badge/Vibecoded%20with-Antigravity-8A2BE2?style=for-the-badge&logo=google" alt="Vibecoded with Antigravity" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License" />
 </p>
 
-> 🔱 **О проекте и авторстве / Attribution:**  
-> **DockFlow** является глубоко переработанным форком проекта **[DockMinimizer](https://github.com/JackTonyMa/DockMinimizer)** разработчика *JackTonyMa*.  
+> 🔱 **О проекте, авторстве и вайбкоде:**  
+> **DockFlow** — глубоко переработанный форк проекта **[DockMinimizer](https://github.com/JackTonyMa/DockMinimizer)** разработчика *JackTonyMa*.  
+> Проект создан и поддерживается **[@minosssh1](https://github.com/minosssh1)** с помощью **вайбкодинга (vibecoding)** в тандеме с AI-ассистентом **Antigravity** (Google DeepMind).  
 > В форке полностью переосмыслено поведение окон, добавлены аппаратная анимация Джинна, модуль автозавершения через CoreGraphics, список исключений, поддержка клика колёсиком (Middle Click), тактильная отдача (Haptic Feedback), нулевое потребление ЦП (0.0%), сохранение сессий браузеров и интерфейс в стиле macOS 27.
 
 ---
@@ -80,6 +82,9 @@
 
 ---
 
-### 📄 Лицензия
+### 📄 Лицензия и благодарности
 
-Распространяется под лицензией **MIT**. Оригинальный проект Copyright © 2025 JackTonyMa. Улучшения форка Copyright © 2026.
+- **Оригинальный проект:** Copyright © 2025 **[JackTonyMa](https://github.com/JackTonyMa)** (DockMinimizer).
+- **Форк DockFlow и новые возможности:** Copyright © 2026 **[minosssh1](https://github.com/minosssh1)**.
+- **Разработка & Вайбкодинг:** Создано совместно с **Antigravity** (Google DeepMind).
+- Распространяется под свободной лицензией **MIT License**.

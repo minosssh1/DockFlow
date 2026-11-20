@@ -8,6 +8,7 @@
   <img src="https://img.shields.io/badge/Architecture-Apple%20Silicon%20(arm64)-orange?style=for-the-badge" alt="Architecture" />
   <img src="https://img.shields.io/badge/CPU%20Usage-0.0%25%20Idle-brightgreen?style=for-the-badge" alt="CPU Usage" />
   <img src="https://img.shields.io/badge/Swift-6.4-F05138?style=for-the-badge&logo=swift" alt="Swift" />
+  <img src="https://img.shields.io/badge/Vibecoded%20with-Antigravity-8A2BE2?style=for-the-badge&logo=google" alt="Vibecoded with Antigravity" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License" />
 </p>
 
@@ -39,9 +40,10 @@
   </details>
 </p>
 
-> 🔱 **Attribution:**  
+> 🔱 **Attribution & Vibecoding:**  
 > **DockFlow** is an advanced fork of **[DockMinimizer](https://github.com/JackTonyMa/DockMinimizer)** by *JackTonyMa*.  
-> This fork significantly revamps window behaviors, adds hardware-accelerated Genie animations, zero-window auto-termination via CoreGraphics, an app exclusions whitelist, Middle-Click gestures, Force Touch haptic feedback, zero idle CPU usage (0.0%), session saving, and a clean macOS 27 aesthetic.
+> Created and maintained by **[@minosssh1](https://github.com/minosssh1)** through **vibecoding** in pair with AI assistant **Antigravity** (Google DeepMind).  
+> This fork significantly revamps window behaviors, adds hardware-accelerated Genie animations, zero-window auto-termination via CoreGraphics, an app exclusions whitelist, Middle-Click gestures, Force Touch haptic feedback, zero idle CPU usage (0.0%), session preservation, and a clean macOS 27 aesthetic.
 
 ---
 
@@ -82,6 +84,9 @@ Standard macOS has window management behaviors that can feel counter-intuitive (
 
 ---
 
-### 📄 License
+### 📄 License & Credits
 
-Distributed under the **MIT License**. Original work Copyright © 2025 JackTonyMa. Fork enhancements Copyright © 2026.
+- **Original project:** Copyright © 2025 **[JackTonyMa](https://github.com/JackTonyMa)** (DockMinimizer).
+- **DockFlow enhancements:** Copyright © 2026 **[minosssh1](https://github.com/minosssh1)**.
+- **Development & Vibecoding:** Created in pair with **Antigravity** (Google DeepMind).
+- Distributed under the open-source **MIT License**.
