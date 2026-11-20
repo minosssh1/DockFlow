@@ -357,7 +357,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // 创建新窗口
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 780),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -395,31 +395,61 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let outputDir = "/Users/minosssh1./.gemini/antigravity/scratch/DockMinimizer/assets/screenshots"
         try? FileManager.default.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
 
-        // 1. Render Main Settings View
-        let settingsView = SettingsView().frame(width: 460, height: 600)
-        let renderer1 = ImageRenderer(content: settingsView)
-        renderer1.scale = 2.0
-        if let cgImg = renderer1.cgImage {
-            let rep = NSBitmapImageRep(cgImage: cgImg)
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+
+        // 1. Snapshot Main Settings Window
+        let win1 = NSWindow(
+            contentRect: NSRect(x: 200, y: 150, width: 460, height: 780),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        win1.title = "DockFlow"
+        let host1 = NSHostingView(rootView: SettingsView())
+        win1.contentView = host1
+        win1.makeKeyAndOrderFront(nil)
+
+        // Allow runloop to layout and render SwiftUI completely
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        host1.layoutSubtreeIfNeeded()
+
+        if let frameView = win1.contentView?.superview {
+            let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds)!
+            frameView.cacheDisplay(in: frameView.bounds, to: rep)
             if let data = rep.representation(using: .png, properties: [:]) {
                 let path = "\(outputDir)/settings_main.png"
                 try? data.write(to: URL(fileURLWithPath: path))
-                print("✅ Rendered \(path)")
+                print("✅ Captured Window 1: \(path), size: \(data.count) bytes")
             }
         }
+        win1.close()
 
-        // 2. Render Exclusions Sheet
-        let exclusionsView = ExclusionsSheetView().frame(width: 480, height: 380)
-        let renderer2 = ImageRenderer(content: exclusionsView)
-        renderer2.scale = 2.0
-        if let cgImg = renderer2.cgImage {
-            let rep = NSBitmapImageRep(cgImage: cgImg)
+        // 2. Snapshot Exclusions Window
+        let win2 = NSWindow(
+            contentRect: NSRect(x: 200, y: 150, width: 480, height: 460),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        win2.title = "Исключения закрытия (⌘Q) — DockFlow"
+        let host2 = NSHostingView(rootView: ExclusionsSheetView())
+        win2.contentView = host2
+        win2.makeKeyAndOrderFront(nil)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        host2.layoutSubtreeIfNeeded()
+
+        if let frameView = win2.contentView?.superview {
+            let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds)!
+            frameView.cacheDisplay(in: frameView.bounds, to: rep)
             if let data = rep.representation(using: .png, properties: [:]) {
                 let path = "\(outputDir)/settings_exclusions.png"
                 try? data.write(to: URL(fileURLWithPath: path))
-                print("✅ Rendered \(path)")
+                print("✅ Captured Window 2: \(path), size: \(data.count) bytes")
             }
         }
+        win2.close()
 
         exit(0)
     }

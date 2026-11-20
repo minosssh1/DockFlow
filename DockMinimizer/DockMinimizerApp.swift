@@ -136,39 +136,47 @@ struct ExclusionsSheetView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List {
-                    ForEach(items) { item in
-                        HStack(spacing: 12) {
-                            Image(nsImage: item.icon)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 28, height: 28)
-                                .cornerRadius(6)
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach(items) { item in
+                            HStack(spacing: 12) {
+                                Image(nsImage: item.icon)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 28, height: 28)
+                                    .cornerRadius(6)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.name)
-                                    .font(.system(size: 13, weight: .medium))
-                                Text(item.bundleIdentifier)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.name)
+                                        .font(.system(size: 13, weight: .medium))
+                                    Text(item.bundleIdentifier)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                Button(action: {
+                                    exclusionManager.removeApp(bundleIdentifier: item.bundleIdentifier)
+                                }) {
+                                    Image(systemName: "trash")
+                                        .foregroundColor(.red.opacity(0.8))
+                                        .font(.system(size: 12))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Удалить из исключений")
                             }
-
-                            Spacer()
-
-                            Button(action: {
-                                exclusionManager.removeApp(bundleIdentifier: item.bundleIdentifier)
-                            }) {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.red.opacity(0.8))
-                                    .font(.system(size: 12))
-                            }
-                            .buttonStyle(.plain)
-                            .help("Удалить из исключений")
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color(NSColor.controlBackgroundColor))
+                            )
                         }
-                        .padding(.vertical, 4)
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
                 }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
             }
 
             Divider()
@@ -225,7 +233,7 @@ struct ExclusionsSheetView: View {
             .padding(.vertical, 12)
             .background(Color(NSColor.windowBackgroundColor))
         }
-        .frame(width: 480, height: 380)
+        .frame(width: 480, height: 460)
     }
 }
 
@@ -478,7 +486,7 @@ struct SettingsView: View {
             .padding(.vertical, 14)
             .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
         }
-        .frame(width: 460, height: 600)
+        .frame(width: 460, height: 780)
         .background(Color(NSColor.windowBackgroundColor))
         .sheet(isPresented: $exclusionManager.showSheet) {
             ExclusionsSheetView()
@@ -498,7 +506,7 @@ struct DockMinimizerApp: App {
         }
         .windowStyle(.automatic)
         .defaultPosition(.center)
-        .defaultSize(width: 460, height: 600)
+        .defaultSize(width: 460, height: 780)
         .commands {
             CommandGroup(replacing: .windowArrangement) { }
         }
