@@ -11,12 +11,26 @@
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License" />
 </p>
 
+> 🔱 **О проекте и авторстве / Attribution:**  
+> **DockFlow** является глубоко переработанным форком проекта **[DockMinimizer](https://github.com/JackTonyMa/DockMinimizer)** разработчика *JackTonyMa*.  
+> В форке полностью переосмыслено поведение окон, добавлены аппаратная анимация Джинна, модуль автозавершения через CoreGraphics, список исключений, поддержка клика колёсиком (Middle Click), тактильная отдача (Haptic Feedback), нулевое потребление ЦП (0.0%), сохранение сессий браузеров и интерфейс в стиле macOS 27.
+
+---
+
 <p align="center">
-  <img src="assets/demo_dock_minimize.gif" width="720" alt="DockFlow Genie Minimize & Restore" />
+  <a href="#русский"><b>🇷🇺 Русский</b></a> &nbsp;&nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp;&nbsp; <a href="#english"><b>🇺🇸 English</b></a>
+</p>
+
+---
+
+## Русский
+
+<p align="center">
+  <img src="assets/demo_dock_minimize_ru.gif" width="720" alt="DockFlow Сворачивание и разворачивание" />
 </p>
 
 <p align="center">
-  <img src="assets/demo_quit_on_close.gif" width="720" alt="DockFlow Quit on Close Button" />
+  <img src="assets/demo_quit_on_close_ru.gif" width="720" alt="DockFlow Закрытие по крестику" />
 </p>
 
 <p align="center">
@@ -30,18 +44,6 @@
     </p>
   </details>
 </p>
-
-> 🔱 **О проекте и авторстве:**  
-> **DockFlow** является глубоко переработанным форком проекта **[DockMinimizer](https://github.com/JackTonyMa/DockMinimizer)** разработчика *JackTonyMa*.  
-> В форке полностью переосмыслено поведение окон, добавлены аппаратная анимация Джинна, модуль автозавершения через CoreGraphics, список исключений, поддержка клика колёсиком (Middle Click), тактильная отдача (Haptic Feedback), нулевое потребление ЦП (0.0%), сохранение сессий браузеров и интерфейс в стиле macOS 27.
-
----
-
-[Русский](#русский) | [English](#english)
-
----
-
-## Русский
 
 ### 📌 Почему DockFlow?
 
@@ -95,11 +97,11 @@
 6. Multilingual interface: English, Russian (Русский), Simplified Chinese (简体中文), and Ukrainian (Українська) with real-time in-app switching.
 
 <p align="center">
-  <img src="assets/demo_dock_minimize.gif" width="720" alt="DockFlow Genie Minimize & Restore" />
+  <img src="assets/demo_dock_minimize_en.gif" width="720" alt="DockFlow Genie Minimize & Restore" />
 </p>
 
 <p align="center">
-  <img src="assets/demo_quit_on_close.gif" width="720" alt="DockFlow Quit on Close Button" />
+  <img src="assets/demo_quit_on_close_en.gif" width="720" alt="DockFlow Quit on Close Button" />
 </p>
 
 <p align="center">
