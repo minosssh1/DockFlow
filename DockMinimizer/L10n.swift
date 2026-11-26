@@ -42,6 +42,14 @@ class LocalizationManager: ObservableObject {
         self.currentLanguage = AppLanguage(rawValue: saved) ?? .system
     }
 
+    func reloadPreference() {
+        let saved = UserDefaults.standard.string(forKey: "appLanguage") ?? ""
+        let target = AppLanguage(rawValue: saved) ?? .system
+        if currentLanguage != target {
+            currentLanguage = target
+        }
+    }
+
     static func effectiveLanguageCode() -> String {
         let saved = UserDefaults.standard.string(forKey: "appLanguage") ?? ""
         if !saved.isEmpty {
@@ -632,4 +640,347 @@ enum L10n {
     }
 
     static var settingsWindowTitle: String { "DockFlow" }
+
+    // Additional Settings Controls
+    static var loggingTitle: String {
+        lm.text(
+            ru: "Диагностический журнал",
+            en: "Diagnostic Logging",
+            zh: "诊断日志",
+            uk: "Діагностичний журнал"
+        )
+    }
+
+    static var loggingSubtitle: String {
+        lm.text(
+            ru: "Записывать события работы в ~/Library/Logs/DockFlow/",
+            en: "Write runtime diagnostics to ~/Library/Logs/DockFlow/",
+            zh: "将运行日志写入 ~/Library/Logs/DockFlow/",
+            uk: "Записувати події роботи в ~/Library/Logs/DockFlow/"
+        )
+    }
+
+    static var updatePolicyTitle: String {
+        lm.text(
+            ru: "Проверка обновлений",
+            en: "Update Check",
+            zh: "更新检查",
+            uk: "Перевірка оновлень"
+        )
+    }
+
+    static var updatePolicySubtitle: String {
+        lm.text(
+            ru: "Частота автоматического поиска новых версий на GitHub",
+            en: "How often to check GitHub for new releases",
+            zh: "自动在 GitHub 上检查新版本的频率",
+            uk: "Частота автоматичного пошуку нових версій на GitHub"
+        )
+    }
+
+    static var updatePolicyOnStartup: String {
+        lm.text(
+            ru: "При запуске",
+            en: "On Startup",
+            zh: "启动时",
+            uk: "Під час запуску"
+        )
+    }
+
+    static var updatePolicyDaily: String {
+        lm.text(
+            ru: "Ежедневно",
+            en: "Daily",
+            zh: "每天",
+            uk: "Щодня"
+        )
+    }
+
+    static var updatePolicyWeekly: String {
+        lm.text(
+            ru: "Еженедельно",
+            en: "Weekly",
+            zh: "每周",
+            uk: "Щотижня"
+        )
+    }
+
+    static var updatePolicyDisabled: String {
+        lm.text(
+            ru: "Отключено",
+            en: "Disabled",
+            zh: "已禁用",
+            uk: "Вимкнено"
+        )
+    }
+
+    // File Picker & Exclusions Window
+    static var exclusionsWindowTitle: String {
+        lm.text(
+            ru: "Исключения закрытия (⌘Q) — DockFlow",
+            en: "Quit Exclusions (⌘Q) — DockFlow",
+            zh: "退出排除列表 (⌘Q) — DockFlow",
+            uk: "Винятки закриття (⌘Q) — DockFlow"
+        )
+    }
+
+    static var filePickerAddButton: String {
+        lm.text(
+            ru: "Добавить",
+            en: "Add",
+            zh: "添加",
+            uk: "Додати"
+        )
+    }
+
+    static var filePickerMessage: String {
+        lm.text(
+            ru: "Выберите приложение, которое не должно завершаться по крестику",
+            en: "Choose an application that should stay running when its window is closed",
+            zh: "选择关闭窗口后仍保留后台运行的应用程序",
+            uk: "Виберіть програму, яка не повинна завершуватися по хрестику"
+        )
+    }
+
+    // OTA Update Alerts & Progress Window
+    static var updateAlertTitle: String {
+        lm.text(
+            ru: "Доступно обновление DockFlow!",
+            en: "DockFlow Update Available!",
+            zh: "DockFlow 有新版本可用！",
+            uk: "Доступне оновлення DockFlow!"
+        )
+    }
+
+    static func updateAlertMessage(current: String, latest: String) -> String {
+        switch lm.activeLanguageCode {
+        case "en":
+            return "Current version: \(current)\nLatest version: \(latest)\n\nWould you like to install this update now?"
+        case "zh-Hans":
+            return "当前版本：\(current)\n最新版本：\(latest)\n\n是否立即安装更新？"
+        case "uk":
+            return "Поточна версія: \(current)\nНова версія: \(latest)\n\nБажаєте встановити оновлення зараз?"
+        default:
+            return "Текущая версия: \(current)\nНовая версия: \(latest)\n\nХотите установить обновление сейчас?"
+        }
+    }
+
+    static var updateNow: String {
+        lm.text(
+            ru: "Обновить сейчас",
+            en: "Update Now",
+            zh: "立即更新",
+            uk: "Оновити зараз"
+        )
+    }
+
+    static var updateWindowTitle: String {
+        lm.text(
+            ru: "Обновление DockFlow",
+            en: "Updating DockFlow",
+            zh: "正在更新 DockFlow",
+            uk: "Оновлення DockFlow"
+        )
+    }
+
+    static func updateWindowHeader(version: String) -> String {
+        switch lm.activeLanguageCode {
+        case "en":
+            return "Updating DockFlow \(version)"
+        case "zh-Hans":
+            return "正在更新 DockFlow \(version)"
+        case "uk":
+            return "Оновлення DockFlow \(version)"
+        default:
+            return "Обновление DockFlow \(version)"
+        }
+    }
+
+    static var updateStagePreparing: String {
+        lm.text(
+            ru: "Подготовка...",
+            en: "Preparing...",
+            zh: "准备中...",
+            uk: "Підготовка..."
+        )
+    }
+
+    static var updateStageInit: String {
+        lm.text(
+            ru: "Инициализация соединения...",
+            en: "Initializing connection...",
+            zh: "正在初始化连接...",
+            uk: "Ініціалізація з'єднання..."
+        )
+    }
+
+    static var updateStageConnecting: String {
+        lm.text(
+            ru: "Этап 1 из 3: Подключение к GitHub...",
+            en: "Step 1 of 3: Connecting to GitHub...",
+            zh: "第 1 步（共 3 步）：正在连接 GitHub...",
+            uk: "Крок 1 з 3: Підключення до GitHub..."
+        )
+    }
+
+    static var updateStageSecureConnection: String {
+        lm.text(
+            ru: "Установка безопасного соединения...",
+            en: "Establishing secure connection...",
+            zh: "正在建立安全连接...",
+            uk: "Встановлення захищеного з'єднання..."
+        )
+    }
+
+    static var updateStageDownloading: String {
+        lm.text(
+            ru: "Этап 1 из 3: Скачивание обновления...",
+            en: "Step 1 of 3: Downloading update...",
+            zh: "第 1 步（共 3 步）：正在下载更新...",
+            uk: "Крок 1 з 3: Завантаження оновлення..."
+        )
+    }
+
+    static func updateDownloadProgress(writtenMB: Double, totalMB: Double, percent: Int) -> String {
+        switch lm.activeLanguageCode {
+        case "en":
+            return String(format: "Downloaded %.1f MB of %.1f MB (%d%%)", writtenMB, totalMB, percent)
+        case "zh-Hans":
+            return String(format: "已下载 %.1f MB / %.1f MB (%d%%)", writtenMB, totalMB, percent)
+        case "uk":
+            return String(format: "Завантажено %.1f МБ з %.1f МБ (%d%%)", writtenMB, totalMB, percent)
+        default:
+            return String(format: "Загружено %.1f МБ из %.1f МБ (%d%%)", writtenMB, totalMB, percent)
+        }
+    }
+
+    static func updateDownloadProgressUnknown(writtenMB: Double) -> String {
+        switch lm.activeLanguageCode {
+        case "en":
+            return String(format: "Downloaded %.1f MB", writtenMB)
+        case "zh-Hans":
+            return String(format: "已下载 %.1f MB", writtenMB)
+        case "uk":
+            return String(format: "Завантажено %.1f МБ", writtenMB)
+        default:
+            return String(format: "Загружено %.1f МБ", writtenMB)
+        }
+    }
+
+    static var updateStageVerifying: String {
+        lm.text(
+            ru: "Этап 2 из 3: Проверка SHA-256 и установка...",
+            en: "Step 2 of 3: Verifying SHA-256 & installing...",
+            zh: "第 2 步（共 3 步）：正在校验 SHA-256 并安装...",
+            uk: "Крок 2 з 3: Перевірка SHA-256 та встановлення..."
+        )
+    }
+
+    static var updateStageInstallingDetail: String {
+        lm.text(
+            ru: "Проверка целостности и подписи образа...",
+            en: "Verifying integrity and code signature...",
+            zh: "正在校验镜像完整性与签名...",
+            uk: "Перевірка цілісності та підпису образу..."
+        )
+    }
+
+    static var updateStageRestarting: String {
+        lm.text(
+            ru: "Этап 3 из 3: Перезапуск...",
+            en: "Step 3 of 3: Restarting...",
+            zh: "第 3 步（共 3 步）：正在重启...",
+            uk: "Крок 3 з 3: Перезапуск..."
+        )
+    }
+
+    static var updateStageRestartingDetail: String {
+        lm.text(
+            ru: "Запуск обновленной версии DockFlow...",
+            en: "Launching updated DockFlow...",
+            zh: "正在启动新版 DockFlow...",
+            uk: "Запуск оновленої версії DockFlow..."
+        )
+    }
+
+    static var updateStageFailed: String {
+        lm.text(
+            ru: "Ошибка загрузки обновления",
+            en: "Update Download Failed",
+            zh: "更新下载失败",
+            uk: "Помилка завантаження оновлення"
+        )
+    }
+
+    static var updateStageReconnecting: String {
+        lm.text(
+            ru: "Этап 1 из 3: Повторное подключение...",
+            en: "Step 1 of 3: Reconnecting...",
+            zh: "第 1 步（共 3 步）：正在重新连接...",
+            uk: "Крок 1 з 3: Повторне підключення..."
+        )
+    }
+
+    static var updateStageRetryingDetail: String {
+        lm.text(
+            ru: "Повторная инициализация загрузки...",
+            en: "Reinitializing download...",
+            zh: "正在重新初始化下载...",
+            uk: "Повторна ініціалізація завантаження..."
+        )
+    }
+
+    static var updateDownloadManually: String {
+        lm.text(
+            ru: "Скачать вручную",
+            en: "Download Manually",
+            zh: "手动下载",
+            uk: "Завантажити вручну"
+        )
+    }
+
+    static var updateRetry: String {
+        lm.text(
+            ru: "Повторить",
+            en: "Retry",
+            zh: "重试",
+            uk: "Повторити"
+        )
+    }
+
+    static var updateCancel: String {
+        lm.text(
+            ru: "Отмена",
+            en: "Cancel",
+            zh: "取消",
+            uk: "Скасувати"
+        )
+    }
+
+    static var updateNotificationBody: String {
+        lm.text(
+            ru: "Нажмите «Проверить обновления...» в менюбаре, чтобы установить новую версию.",
+            en: "Click \"Check for Updates...\" in the menu bar to install the new version.",
+            zh: "点击菜单栏中的“检查更新...”以安装新版本。",
+            uk: "Натисніть «Перевірити оновлення...» в менюбарі, щоб встановити нову версію."
+        )
+    }
+
+    static var updateChecksumMissingError: String {
+        lm.text(
+            ru: "В релизе отсутствует файл .sha256 для проверки целостности. Используйте ручную загрузку.",
+            en: "Release does not contain a .sha256 verification file. Please download manually.",
+            zh: "该版本缺少 .sha256 校验文件，请手动下载更新。",
+            uk: "У релізі відсутній файл .sha256 для перевірки цілісності. Скористайтеся ручним завантаженням."
+        )
+    }
+
+    static var updateChecksumMismatchError: String {
+        lm.text(
+            ru: "Контрольная сумма SHA-256 загруженного образа не совпадает! Обновление отменено.",
+            en: "Downloaded DMG SHA-256 checksum mismatch! Update aborted for safety.",
+            zh: "下载的 DMG 校验和不匹配，出于安全考虑已取消更新！",
+            uk: "Контрольна сума SHA-256 завантаженого образу не збігається! Оновлення скасовано."
+        )
+    }
 }

@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		AAA001 /* DockMinimizerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA101 /* DockMinimizerApp.swift */; };
 		AAA002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA102 /* AppDelegate.swift */; };
-		AAA003 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA103 /* AppState.swift */; };
 		AAA004 /* DockMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA104 /* DockMonitor.swift */; };
 		AAA005 /* WindowMinimizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA105 /* WindowMinimizer.swift */; };
 		AAA006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AAA106 /* Assets.xcassets */; };
@@ -18,13 +17,20 @@
 		AAA009 /* en in Resources */ = {isa = PBXBuildFile; fileRef = AAA110 /* en */; };
 		AAA010 /* zh-Hans in Resources */ = {isa = PBXBuildFile; fileRef = AAA112 /* zh-Hans */; };
 		AAA011 /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA113 /* UpdateService.swift */; };
+		AAA012 /* AutoQuitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA114 /* AutoQuitter.swift */; };
+		AAA013 /* HapticFeedbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA115 /* HapticFeedbackService.swift */; };
+		AAA014 /* AppExclusionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA116 /* AppExclusionManager.swift */; };
+		AAA015 /* DockGeometryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA117 /* DockGeometryService.swift */; };
+		AAA016 /* WindowClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA118 /* WindowClassifier.swift */; };
+		AAA017 /* UpdateWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA119 /* UpdateWindow.swift */; };
+		AAA018 /* ru in Resources */ = {isa = PBXBuildFile; fileRef = AAA120 /* ru */; };
+		AAA019 /* uk in Resources */ = {isa = PBXBuildFile; fileRef = AAA121 /* uk */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		AAA100 /* DockMinimizer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DockMinimizer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AAA100 /* DockFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DockFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AAA101 /* DockMinimizerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockMinimizerApp.swift; sourceTree = "<group>"; };
 		AAA102 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		AAA103 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		AAA104 /* DockMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockMonitor.swift; sourceTree = "<group>"; };
 		AAA105 /* WindowMinimizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowMinimizer.swift; sourceTree = "<group>"; };
 		AAA106 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -34,6 +40,14 @@
 		AAA110 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		AAA112 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		AAA113 /* UpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateService.swift; sourceTree = "<group>"; };
+		AAA114 /* AutoQuitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoQuitter.swift; sourceTree = "<group>"; };
+		AAA115 /* HapticFeedbackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticFeedbackService.swift; sourceTree = "<group>"; };
+		AAA116 /* AppExclusionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppExclusionManager.swift; sourceTree = "<group>"; };
+		AAA117 /* DockGeometryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockGeometryService.swift; sourceTree = "<group>"; };
+		AAA118 /* WindowClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowClassifier.swift; sourceTree = "<group>"; };
+		AAA119 /* UpdateWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateWindow.swift; sourceTree = "<group>"; };
+		AAA120 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/Localizable.strings; sourceTree = "<group>"; };
+		AAA121 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/Localizable.strings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -61,8 +75,8 @@
 				AAA101 /* DockMinimizerApp.swift */,
 				AAA102 /* AppDelegate.swift */,
 				AAA109 /* L10n.swift */,
-				AAA303 /* Models */,
 				AAA304 /* Services */,
+				AAA306 /* Views */,
 				AAA305 /* Resources */,
 				AAA106 /* Assets.xcassets */,
 				AAA107 /* Info.plist */,
@@ -73,24 +87,21 @@
 		AAA302 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				AAA100 /* DockMinimizer.app */,
+				AAA100 /* DockFlow.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		AAA303 /* Models */ = {
-			isa = PBXGroup;
-			children = (
-				AAA103 /* AppState.swift */,
-			);
-			path = Models;
 			sourceTree = "<group>";
 		};
 		AAA304 /* Services */ = {
 			isa = PBXGroup;
 			children = (
 				AAA104 /* DockMonitor.swift */,
+				AAA117 /* DockGeometryService.swift */,
+				AAA118 /* WindowClassifier.swift */,
 				AAA105 /* WindowMinimizer.swift */,
+				AAA114 /* AutoQuitter.swift */,
+				AAA116 /* AppExclusionManager.swift */,
+				AAA115 /* HapticFeedbackService.swift */,
 				AAA108 /* LogService.swift */,
 				AAA113 /* UpdateService.swift */,
 			);
@@ -102,16 +113,26 @@
 			children = (
 				AAA110 /* en */,
 				AAA112 /* zh-Hans */,
+				AAA120 /* ru */,
+				AAA121 /* uk */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		AAA306 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AAA119 /* UpdateWindow.swift */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		AAA400 /* DockMinimizer */ = {
+		AAA400 /* DockFlow */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AAA500 /* Build configuration list for PBXNativeTarget "DockMinimizer" */;
+			buildConfigurationList = AAA500 /* Build configuration list for PBXNativeTarget "DockFlow" */;
 			buildPhases = (
 				AAA401 /* Sources */,
 				AAA200 /* Frameworks */,
@@ -121,9 +142,9 @@
 			);
 			dependencies = (
 			);
-			name = DockMinimizer;
-			productName = DockMinimizer;
-			productReference = AAA100 /* DockMinimizer.app */;
+			name = DockFlow;
+			productName = DockFlow;
+			productReference = AAA100 /* DockFlow.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -149,13 +170,15 @@
 				en,
 				Base,
 				"zh-Hans",
+				ru,
+				uk,
 			);
 			mainGroup = AAA300;
 			productRefGroup = AAA302 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				AAA400 /* DockMinimizer */,
+				AAA400 /* DockFlow */,
 			);
 		};
 /* End PBXProject section */
@@ -168,6 +191,8 @@
 				AAA006 /* Assets.xcassets in Resources */,
 				AAA009 /* en in Resources */,
 				AAA010 /* zh-Hans in Resources */,
+				AAA018 /* ru in Resources */,
+				AAA019 /* uk in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -180,12 +205,17 @@
 			files = (
 				AAA001 /* DockMinimizerApp.swift in Sources */,
 				AAA002 /* AppDelegate.swift in Sources */,
-				AAA003 /* AppState.swift in Sources */,
 				AAA004 /* DockMonitor.swift in Sources */,
+				AAA015 /* DockGeometryService.swift in Sources */,
+				AAA016 /* WindowClassifier.swift in Sources */,
 				AAA005 /* WindowMinimizer.swift in Sources */,
+				AAA012 /* AutoQuitter.swift in Sources */,
+				AAA014 /* AppExclusionManager.swift in Sources */,
+				AAA013 /* HapticFeedbackService.swift in Sources */,
 				AAA007 /* LogService.swift in Sources */,
 				AAA008 /* L10n.swift in Sources */,
 				AAA011 /* UpdateService.swift in Sources */,
+				AAA017 /* UpdateWindow.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -245,7 +275,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -303,7 +333,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -317,26 +347,22 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_IDENTITY = "DockMinimizer Signing";
+				CODE_SIGN_IDENTITY = "DockFlow";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = DockMinimizer/Info.plist;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.3;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dockminimizer.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				MARKETING_VERSION = 2.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dockflow.app;
+				PRODUCT_NAME = DockFlow;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -348,26 +374,22 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_IDENTITY = "DockMinimizer Signing";
+				CODE_SIGN_IDENTITY = "DockFlow";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "";
-				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = DockMinimizer/Info.plist;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.3;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dockminimizer.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				MARKETING_VERSION = 2.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dockflow.app;
+				PRODUCT_NAME = DockFlow;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -377,7 +399,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		AAA500 /* Build configuration list for PBXNativeTarget "DockMinimizer" */ = {
+		AAA500 /* Build configuration list for PBXNativeTarget "DockFlow" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				AAA800 /* Debug */,

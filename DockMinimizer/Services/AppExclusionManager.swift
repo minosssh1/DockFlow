@@ -1,7 +1,9 @@
 import Foundation
 import Cocoa
+import UniformTypeIdentifiers
+import os
 
-/// Элемент приложения-исключения для отображения в UI
+/// Excluded application entry displayed in the exclusions UI.
 struct ExcludedAppItem: Identifiable, Equatable {
     var id: String { bundleIdentifier }
     let bundleIdentifier: String
@@ -9,13 +11,12 @@ struct ExcludedAppItem: Identifiable, Equatable {
     let icon: NSImage
 }
 
-/// Управляет списком приложений, исключённых из принудительного закрытия по ⌘Q
-class AppExclusionManager: ObservableObject {
+/// Manages applications excluded from automatic Command+Q quit-on-close.
+final class AppExclusionManager: ObservableObject {
     static let shared = AppExclusionManager()
 
     private let storageKey = "quitOnCloseExcludedBundleIDs"
 
-    // Предустановленные популярные приложения для новых пользователей
     private let defaultExcludedBundleIDs: [String] = [
         "ru.keepcoder.Telegram",
         "com.tdesktop.Telegram",
@@ -29,11 +30,14 @@ class AppExclusionManager: ObservableObject {
     @Published var excludedBundleIDs: [String] = [] {
         didSet {
             UserDefaults.standard.set(excludedBundleIDs, forKey: storageKey)
-            _cachedSet = Set(excludedBundleIDs)
+            cacheLock.withLock { $0 = Set(excludedBundleIDs) }
+            refreshCachedItems()
         }
     }
 
-    private var _cachedSet: Set<String> = []
+    @Published private(set) var excludedAppItems: [ExcludedAppItem] = []
+
+    private let cacheLock = OSAllocatedUnfairLock<Set<String>>(initialState: [])
 
     private init() {
         if let saved = UserDefaults.standard.stringArray(forKey: storageKey) {
@@ -42,28 +46,37 @@ class AppExclusionManager: ObservableObject {
             excludedBundleIDs = defaultExcludedBundleIDs
             UserDefaults.standard.set(defaultExcludedBundleIDs, forKey: storageKey)
         }
-        _cachedSet = Set(excludedBundleIDs)
+        cacheLock.withLock { $0 = Set(excludedBundleIDs) }
+        refreshCachedItems()
     }
 
-    /// Проверяет, находится ли приложение в списке исключений
+    /// Refreshes cached list after legacy preferences migration.
+    func reloadPreference() {
+        if let saved = UserDefaults.standard.stringArray(forKey: storageKey),
+           saved != excludedBundleIDs {
+            excludedBundleIDs = saved
+        }
+    }
+
+    /// Thread-safe check whether a bundle identifier is excluded from quit-on-close.
     func isExcluded(bundleIdentifier: String) -> Bool {
-        return _cachedSet.contains(bundleIdentifier)
+        cacheLock.withLock { $0.contains(bundleIdentifier) }
     }
 
-    /// Добавляет приложение по Bundle Identifier
+    /// Adds an application bundle identifier to the exclusions list.
     func addApp(bundleIdentifier: String) {
         guard !excludedBundleIDs.contains(bundleIdentifier) else { return }
         excludedBundleIDs.append(bundleIdentifier)
     }
 
-    /// Удаляет приложение из исключений
+    /// Removes an application bundle identifier from the exclusions list.
     func removeApp(bundleIdentifier: String) {
         excludedBundleIDs.removeAll { $0 == bundleIdentifier }
     }
 
-    /// Возвращает список элементов с иконками и именами для отображения в настройках
-    func getExcludedAppItems() -> [ExcludedAppItem] {
-        return excludedBundleIDs.map { bid in
+    /// Resolves display names and icons outside SwiftUI body evaluation.
+    private func refreshCachedItems() {
+        excludedAppItems = excludedBundleIDs.map { bid in
             if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) {
                 let name = FileManager.default.displayName(atPath: url.path)
                 let icon = NSWorkspace.shared.icon(forFile: url.path)
@@ -76,7 +89,7 @@ class AppExclusionManager: ObservableObject {
         }
     }
 
-    /// Открывает диалог выбора приложения из /Applications
+    /// Opens an application picker sheet/panel scoped to /Applications.
     func addAppViaFilePicker() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.application]
@@ -84,14 +97,14 @@ class AppExclusionManager: ObservableObject {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.prompt = "Добавить"
-        panel.message = "Выберите приложение, которое не должно закрываться по крестику"
+        panel.prompt = L10n.filePickerAddButton
+        panel.message = L10n.filePickerMessage
 
         NSApplication.shared.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url {
-            let bundle = Bundle(url: url)
-            let bid = bundle?.bundleIdentifier ?? url.deletingPathExtension().lastPathComponent
-            addApp(bundleIdentifier: bid)
+            if let bid = Bundle(url: url)?.bundleIdentifier {
+                addApp(bundleIdentifier: bid)
+            }
         }
     }
 }

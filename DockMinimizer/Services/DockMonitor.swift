@@ -1,78 +1,60 @@
 import Cocoa
 import Carbon
 import UserNotifications
+import os
 
-/// 检测 Accessibility API 是否真正可用
-func isAccessibilityActuallyWorking() -> Bool {
-    guard AXIsProcessTrusted() else { return false }
-    guard let dockApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else {
-        return false
-    }
-    let dockRef = AXUIElementCreateApplication(dockApp.processIdentifier)
-    var value: AnyObject?
-    let result = AXUIElementCopyAttributeValue(dockRef, kAXChildrenAttribute as CFString, &value)
-    return result == .success
-}
-
-// Global callback function for CGEventTap
-private func globalEventCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, userInfo: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+// Global callback function for CGEventTap running on dedicated background thread
+private func globalEventCallback(
+    proxy: CGEventTapProxy,
+    type: CGEventType,
+    event: CGEvent,
+    userInfo: UnsafeMutableRawPointer?
+) -> Unmanaged<CGEvent>? {
     guard let userInfo = userInfo else {
         return Unmanaged.passUnretained(event)
     }
 
     let monitor = Unmanaged<DockMonitor>.fromOpaque(userInfo).takeUnretainedValue()
 
-    // 处理 tap 超时被系统暂时禁用的情况：立即重新启用，而不是销毁 tap
-    if type == .tapDisabledByTimeout {
-        LogService.shared.log(level: .warning, category: "DockMonitor", message: "[回调] 检测到 tapDisabledByTimeout，正在重新启用 tap")
-        if let tap = monitor.eventTap {
-            CGEvent.tapEnable(tap: tap, enable: true)
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        if type == .tapDisabledByTimeout {
+            LogService.shared.log(level: .warning, category: "DockMonitor", message: "CGEventTap disabled by timeout; re-enabling")
         }
+        monitor.reenableTap()
         return Unmanaged.passUnretained(event)
-    }
-
-    if type == .tapDisabledByUserInput {
-        if let tap = monitor.eventTap {
-            CGEvent.tapEnable(tap: tap, enable: true)
-        }
-        return Unmanaged.passUnretained(event)
-    }
-
-    // 检查 tap 是否仍然处于启用状态，如果被意外禁用则重新激活
-    if let tap = monitor.eventTap, !CGEvent.tapIsEnabled(tap: tap) {
-        CGEvent.tapEnable(tap: tap, enable: true)
     }
 
     let consumed = monitor.handleEvent(proxy: proxy, type: type, event: event)
     return consumed ? nil : Unmanaged.passUnretained(event)
 }
 
-/// Monitors Dock icon clicks
-class DockMonitor: ObservableObject {
+/// Monitors Dock clicks, middle-clicks, and close-button clicks using an off-main-thread CGEventTap.
+final class DockMonitor: ObservableObject {
     static let shared = DockMonitor()
 
-    private var currentFrontmostPID: pid_t?
-    private var currentFrontmostName: String?
-    var eventTap: CFMachPort?  // internal 访问级别，供回调函数使用
-    private var runLoopSource: CFRunLoopSource?
+    private struct TapState {
+        var eventTap: CFMachPort?
+        var runLoopSource: CFRunLoopSource?
+        var tapRunLoop: CFRunLoop?
+        var suppressedLeftUpUntilNs: UInt64 = 0
+        var suppressedOtherUpUntilNs: UInt64 = 0
+    }
+
+    private let tapLock = OSAllocatedUnfairLock<TapState>(initialState: TapState())
+    private var tapThread: Thread?
     private var permissionCheckTimer: Timer?
-    private var lastPermissionState: Bool = false  // 记录上次权限状态，用于检测变化
-    private lazy var systemWideElement: AXUIElement = {
+    private var lastPermissionState: Bool = false
+
+    private let systemWideElement: AXUIElement = {
         let sys = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(sys, 0.04)
+        AXHelper.setTimeout(sys, AXHelper.tapTimeout)
         return sys
     }()
 
-    /// 权限和功能是否完全可用
     @Published var isFullyFunctional: Bool = false
 
     private init() {
-        if let frontApp = NSWorkspace.shared.frontmostApplication {
-            currentFrontmostPID = frontApp.processIdentifier
-            currentFrontmostName = frontApp.localizedName
-        }
-
-        startWorkspaceMonitoring()
+        _ = DockGeometryService.shared
         tryStartEventTap()
         startPermissionCheckTimer()
     }
@@ -80,7 +62,14 @@ class DockMonitor: ObservableObject {
     deinit {
         permissionCheckTimer?.invalidate()
         stopEventTap()
-        NSWorkspace.shared.notificationCenter.removeObserver(self)
+    }
+
+    func reenableTap() {
+        tapLock.withLock { state in
+            if let tap = state.eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+        }
     }
 
     private func startPermissionCheckTimer() {
@@ -92,15 +81,17 @@ class DockMonitor: ObservableObject {
 
     private func checkPermissionState(isInitial: Bool = false) {
         let trusted = AXIsProcessTrusted()
+        let hasTap = tapLock.withLock { $0.eventTap != nil }
 
-        // 只要系统信任此进程，并且 eventTap 正常建立，功能即视为可用
-        isFullyFunctional = trusted && (eventTap != nil)
+        DispatchQueue.main.async { [weak self] in
+            self?.isFullyFunctional = trusted && hasTap
+        }
 
-        // 检测系统权限状态变化（基于 AXIsProcessTrusted，避免因 Dock 繁忙引发误判）
         if trusted != lastPermissionState || isInitial {
             if !isInitial {
-                LogService.shared.log(category: "DockMonitor", message: "[Изменение прав] AXIsProcessTrusted: \(lastPermissionState ? "Да" : "Нет") -> \(trusted ? "Да" : "Нет")")
+                LogService.shared.log(category: "DockMonitor", message: "Accessibility trust changed: \(lastPermissionState) -> \(trusted)")
                 if trusted {
+                    DockGeometryService.shared.rebuildObserverIfTrusted()
                     sendNotification(title: L10n.permissionGrantedNotificationTitle, body: L10n.permissionGrantedNotificationBody)
                 } else {
                     sendNotification(title: L10n.permissionRevoked, body: L10n.permissionRevokedMessage)
@@ -111,39 +102,33 @@ class DockMonitor: ObservableObject {
         }
 
         if trusted {
-            if eventTap == nil {
-                LogService.shared.log(category: "DockMonitor", message: "[DockMonitor] Права получены, запускаем eventTap")
+            if !hasTap {
+                LogService.shared.log(category: "DockMonitor", message: "Accessibility permission granted, starting eventTap")
                 tryStartEventTap()
-            } else if let tap = eventTap, !CGEvent.tapIsEnabled(tap: tap) {
-                LogService.shared.log(category: "DockMonitor", message: "[DockMonitor] eventTap был отключен системой, активируем обратно")
-                CGEvent.tapEnable(tap: tap, enable: true)
+            } else {
+                reenableTap()
             }
-        } else if eventTap != nil {
-            // 系统权限真正被撤销时才停止 eventTap
-            LogService.shared.log(level: .warning, category: "DockMonitor", message: "[DockMonitor] Права отозваны, останавливаем eventTap")
+        } else if hasTap {
+            LogService.shared.log(level: .warning, category: "DockMonitor", message: "Accessibility permission revoked, stopping eventTap")
             stopEventTap()
         }
     }
 
     private func sendNotification(title: String, body: String) {
         let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if granted {
-                let content = UNMutableNotificationContent()
-                content.title = title
-                content.body = body
-                content.sound = .default
-
-                let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-                center.add(request)
-            }
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            center.add(request)
         }
     }
 
     private func adjustTimerInterval() {
         permissionCheckTimer?.invalidate()
-        // Если права уже выданы, проверяем редко (раз в 60 сек с tolerance 15 сек для энергосбережения macOS)
-        // Если права не выданы, опрашиваем раз в 1.5 сек для быстрого реагирования на переключатель в Настройках
         let interval: TimeInterval = lastPermissionState ? 60.0 : 1.5
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             self?.checkPermissionState()
@@ -154,172 +139,236 @@ class DockMonitor: ObservableObject {
     }
 
     private func stopEventTap() {
-        LogService.shared.log(category: "DockMonitor", message: "[stopEventTap] 开始停止，eventTap: \(eventTap != nil ? "存在" : "不存在")")
-        guard let tap = eventTap else {
-            LogService.shared.log(category: "DockMonitor", message: "[stopEventTap] eventTap 为空，跳过")
-            return
+        let previous = tapLock.withLock { state -> (CFMachPort?, CFRunLoopSource?, CFRunLoop?) in
+            let out = (state.eventTap, state.runLoopSource, state.tapRunLoop)
+            state.eventTap = nil
+            state.runLoopSource = nil
+            state.tapRunLoop = nil
+            state.suppressedLeftUpUntilNs = 0
+            state.suppressedOtherUpUntilNs = 0
+            return out
         }
 
-        CGEvent.tapEnable(tap: tap, enable: false)
-        LogService.shared.log(category: "DockMonitor", message: "[stopEventTap] 已禁用 tap")
-
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            runLoopSource = nil
-            LogService.shared.log(category: "DockMonitor", message: "[stopEventTap] 已移除 runLoopSource")
+        if let tap = previous.0 {
+            CGEvent.tapEnable(tap: tap, enable: false)
         }
+        if let rl = previous.2, let src = previous.1 {
+            CFRunLoopPerformBlock(rl, CFRunLoopMode.commonModes.rawValue) {
+                CFRunLoopRemoveSource(rl, src, .commonModes)
+                CFRunLoopStop(rl)
+            }
+            CFRunLoopWakeUp(rl)
+        }
+        tapThread = nil
 
-        eventTap = nil
-        LogService.shared.log(category: "DockMonitor", message: "[stopEventTap] 完成")
-    }
-
-    /// 当 CGEventTap 被系统禁用时调用（权限被撤销或超时）
-    func handleTapDisabled() {
-        LogService.shared.log(level: .warning, category: "DockMonitor", message: "[handleTapDisabled] 被调用")
         DispatchQueue.main.async { [weak self] in
-            LogService.shared.log(category: "DockMonitor", message: "[handleTapDisabled] 主线程执行 stopEventTap")
-            self?.stopEventTap()
+            self?.isFullyFunctional = false
         }
-    }
-
-    private func startWorkspaceMonitoring() {
-        let center = NSWorkspace.shared.notificationCenter
-        center.addObserver(
-            self,
-            selector: #selector(appActivated(_:)),
-            name: NSWorkspace.didActivateApplicationNotification,
-            object: nil
-        )
-    }
-
-    @objc private func appActivated(_ notification: Notification) {
-        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
-            return
-        }
-        currentFrontmostPID = app.processIdentifier
-        currentFrontmostName = app.localizedName
     }
 
     private func tryStartEventTap() {
         guard AXIsProcessTrusted() else { return }
 
-        if let tap = eventTap {
-            if !CGEvent.tapIsEnabled(tap: tap) {
+        let alreadyRunning = tapLock.withLock { state -> Bool in
+            if let tap = state.eventTap {
+                if !CGEvent.tapIsEnabled(tap: tap) {
+                    CGEvent.tapEnable(tap: tap, enable: true)
+                }
+                return true
+            }
+            return false
+        }
+        if alreadyRunning { return }
+
+        startEventTapThread()
+    }
+
+    private func startEventTapThread() {
+        let thread = Thread { [weak self] in
+            guard let self else { return }
+
+            let eventMask =
+                (1 << CGEventType.leftMouseDown.rawValue) |
+                (1 << CGEventType.leftMouseUp.rawValue) |
+                (1 << CGEventType.otherMouseDown.rawValue) |
+                (1 << CGEventType.otherMouseUp.rawValue)
+
+            let selfPointer = Unmanaged.passUnretained(self).toOpaque()
+            guard let tap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .tailAppendEventTap,
+                options: .defaultTap,
+                eventsOfInterest: CGEventMask(eventMask),
+                callback: globalEventCallback,
+                userInfo: selfPointer
+            ) else {
+                LogService.shared.log(level: .error, category: "DockMonitor", message: "Failed to create CGEventTap")
+                return
+            }
+
+            let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
+            let rl = CFRunLoopGetCurrent()
+
+            self.tapLock.withLock { state in
+                state.eventTap = tap
+                state.runLoopSource = source
+                state.tapRunLoop = rl
+            }
+
+            if let source {
+                CFRunLoopAddSource(rl, source, .commonModes)
                 CGEvent.tapEnable(tap: tap, enable: true)
+                DispatchQueue.main.async { [weak self] in
+                    self?.isFullyFunctional = AXIsProcessTrusted()
+                }
+                LogService.shared.log(category: "DockMonitor", message: "CGEventTap started on dedicated runloop thread")
+                CFRunLoopRun()
             }
-            return
         }
-        startEventTap()
+        thread.name = "com.dockflow.app.eventtap"
+        thread.qualityOfService = .userInteractive
+        tapThread = thread
+        thread.start()
     }
 
-    private func startEventTap() {
-        LogService.shared.log(category: "DockMonitor", message: "[startEventTap] 开始创建 eventTap")
-        let eventMask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.otherMouseDown.rawValue)
-        let selfPointer = Unmanaged.passUnretained(self).toOpaque()
+    // MARK: - Event Dispatch
 
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .tailAppendEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(eventMask),
-            callback: globalEventCallback,
-            userInfo: selfPointer
-        ) else {
-            LogService.shared.log(level: .error, category: "DockMonitor", message: "[startEventTap] 无法创建 CGEventTap")
-            return
+    func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Bool {
+        let now = DispatchTime.now().uptimeNanoseconds
+
+        if type == .leftMouseUp {
+            return tapLock.withLock { state in
+                if state.suppressedLeftUpUntilNs != 0 && now <= state.suppressedLeftUpUntilNs {
+                    state.suppressedLeftUpUntilNs = 0
+                    return true
+                }
+                state.suppressedLeftUpUntilNs = 0
+                return false
+            }
         }
 
-        eventTap = tap
-        runLoopSource = CFMachPortCreateRunLoopSource(nil, tap, 0)
+        if type == .otherMouseUp {
+            let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
+            guard buttonNumber == 2 else { return false }
+            return tapLock.withLock { state in
+                if state.suppressedOtherUpUntilNs != 0 && now <= state.suppressedOtherUpUntilNs {
+                    state.suppressedOtherUpUntilNs = 0
+                    return true
+                }
+                state.suppressedOtherUpUntilNs = 0
+                return false
+            }
+        }
 
-        if let source = runLoopSource {
-            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-            CGEvent.tapEnable(tap: tap, enable: true)
-            LogService.shared.log(category: "DockMonitor", message: "[startEventTap] eventTap 创建成功并已启用")
+        if type == .otherMouseDown {
+            let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
+            guard buttonNumber == 2 else { return false }
+            let consumed = autoreleasepool { handleMiddleClick(event: event) }
+            if consumed {
+                tapLock.withLock { $0.suppressedOtherUpUntilNs = now &+ 2_000_000_000 }
+            }
+            return consumed
+        }
+
+        guard type == .leftMouseDown else { return false }
+
+        let consumed = autoreleasepool { handleLeftMouseDown(location: event.location) }
+        if consumed {
+            tapLock.withLock { $0.suppressedLeftUpUntilNs = now &+ 2_000_000_000 }
+        }
+        return consumed
+    }
+
+    private func handleLeftMouseDown(location: CGPoint) -> Bool {
+        // 1. Dock icon click -> Genie minimize/restore if enabled and frontmost
+        if let dockItem = DockGeometryService.shared.itemAt(location) {
+            let genieEnabled = UserDefaults.standard.object(forKey: "genieMinimizeEnabled") == nil ||
+                               UserDefaults.standard.bool(forKey: "genieMinimizeEnabled")
+            if genieEnabled,
+               let frontApp = NSWorkspace.shared.frontmostApplication,
+               doesDockItem(dockItem, match: frontApp) {
+                LogService.shared.log(category: "DockMonitor", message: "Dock click on frontmost app: \(dockItem.title)")
+                return WindowMinimizer.shared.toggleMinimization(app: frontApp)
+            }
+            // If click landed on a non-frontmost Dock tile, let Dock handle activation normally
+            return false
+        }
+
+        // 2. Red close button click (⌘Q on last window) with fast WindowServer titlebar corner pre-filter
+        let quitOnClose = UserDefaults.standard.object(forKey: "quitOnCloseButton") == nil ||
+                          UserDefaults.standard.bool(forKey: "quitOnCloseButton")
+        guard quitOnClose, isLocationInsideEligibleTitlebarCorner(location) else {
+            return false
+        }
+
+        return handleCloseButtonClick(at: location)
+    }
+
+    // MARK: - App Identity Matching (Strict URL / BundleID)
+
+    private func doesDockItem(_ item: DockTileInfo, match app: NSRunningApplication) -> Bool {
+        if let itemBID = item.bundleIdentifier, let appBID = app.bundleIdentifier {
+            return itemBID == appBID
+        }
+        if let itemURL = item.url, let appURL = app.bundleURL {
+            return itemURL.standardizedFileURL == appURL.standardizedFileURL
+        }
+        guard !item.title.isEmpty, let appName = app.localizedName, !appName.isEmpty else {
+            return false
+        }
+        return item.title.caseInsensitiveCompare(appName) == .orderedSame
+    }
+
+    private func findRunningApp(for dockItem: DockTileInfo) -> NSRunningApplication? {
+        let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+
+        if let bid = dockItem.bundleIdentifier,
+           let match = running.first(where: { $0.bundleIdentifier == bid }) {
+            return match
+        }
+        if let itemURL = dockItem.url {
+            let stdURL = itemURL.standardizedFileURL
+            if let match = running.first(where: { $0.bundleURL?.standardizedFileURL == stdURL }) {
+                return match
+            }
+        }
+        guard !dockItem.title.isEmpty else { return nil }
+        return running.first { app in
+            guard let name = app.localizedName else { return false }
+            return name.caseInsensitiveCompare(dockItem.title) == .orderedSame
         }
     }
 
-    /// Get the name and URL of the app whose Dock icon is at the given click location
-    private func getAppInfoAtDockLocation(_ clickPoint: CGPoint) -> (title: String, urlString: String?)? {
-        guard let dockApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else {
-            return nil
+    // MARK: - Fast In-Memory Close-Button Pre-Filter
+
+    private func isLocationInsideEligibleTitlebarCorner(_ location: CGPoint) -> Bool {
+        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return false
         }
 
-        let dockPID = dockApp.processIdentifier
-        let dockAppRef = AXUIElementCreateApplication(dockPID)
-        AXUIElementSetMessagingTimeout(dockAppRef, 0.05)
-
-        var childrenValue: AnyObject?
-        let childrenResult = AXUIElementCopyAttributeValue(dockAppRef, kAXChildrenAttribute as CFString, &childrenValue)
-
-        guard childrenResult == .success, let children = childrenValue as? [AXUIElement] else {
-            return nil
-        }
-
-        for child in children {
-            var roleValue: AnyObject?
-            AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleValue)
-
-            guard let role = roleValue as? String, role == kAXListRole as String else {
+        for info in windowList {
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                  let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
+                  rect.width >= 60, rect.height >= 40 else {
                 continue
             }
 
-            var itemsValue: AnyObject?
-            let itemsResult = AXUIElementCopyAttributeValue(child, kAXChildrenAttribute as CFString, &itemsValue)
-
-            guard itemsResult == .success, let items = itemsValue as? [AXUIElement] else {
+            // Traffic lights live inside the top 48pt, within left 120pt (or right 120pt for RTL)
+            let topBandMaxY = rect.minY + 48
+            guard location.y >= rect.minY && location.y <= topBandMaxY else {
                 continue
             }
-
-            for item in items {
-                var positionValue: AnyObject?
-                var sizeValue: AnyObject?
-
-                let posResult = AXUIElementCopyAttributeValue(item, kAXPositionAttribute as CFString, &positionValue)
-                let sizeResult = AXUIElementCopyAttributeValue(item, kAXSizeAttribute as CFString, &sizeValue)
-
-                guard posResult == .success, sizeResult == .success,
-                      let posVal = positionValue, let sizeVal = sizeValue else {
-                    continue
-                }
-
-                var position = CGPoint.zero
-                var size = CGSize.zero
-
-                guard AXValueGetValue(posVal as! AXValue, .cgPoint, &position),
-                      AXValueGetValue(sizeVal as! AXValue, .cgSize, &size) else {
-                    continue
-                }
-
-                let rect = CGRect(x: position.x, y: position.y, width: size.width, height: size.height)
-
-                if rect.contains(clickPoint) {
-                    var titleValue: AnyObject?
-                    let titleResult = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleValue)
-                    let title = (titleResult == .success) ? (titleValue as? String ?? "") : ""
-
-                    var subroleValue: AnyObject?
-                    AXUIElementCopyAttributeValue(item, kAXSubroleAttribute as CFString, &subroleValue)
-                    let subrole = (subroleValue as? String) ?? ""
-
-                    var roleDescValue: AnyObject?
-                    AXUIElementCopyAttributeValue(item, kAXRoleDescriptionAttribute as CFString, &roleDescValue)
-                    let roleDesc = (roleDescValue as? String) ?? ""
-
-                    var urlValue: AnyObject?
-                    AXUIElementCopyAttributeValue(item, "AXURL" as CFString, &urlValue)
-                    let urlStr = urlValue as? String
-
-                    if subrole == "AXApplicationDockItem" || roleDesc.contains("应用程序") || roleDesc.contains("application") || roleDesc.contains("приложение") || roleDesc.contains("dock") {
-                        return (title, urlStr)
-                    }
-                    return nil
-                }
+            let inLeftCorner = location.x >= rect.minX && location.x <= rect.minX + 120
+            let inRightCorner = location.x >= rect.maxX - 120 && location.x <= rect.maxX
+            if inLeftCorner || inRightCorner {
+                return true
             }
         }
-
-        return nil
+        return false
     }
+
+    // MARK: - Close Button Handling
 
     private func handleCloseButtonClick(at location: CGPoint) -> Bool {
         var hitElem: AXUIElement?
@@ -328,9 +377,8 @@ class DockMonitor: ObservableObject {
             return false
         }
 
-        var subroleVal: AnyObject?
-        AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleVal)
-        guard let subrole = subroleVal as? String, subrole == (kAXCloseButtonSubrole as String) else {
+        AXHelper.setTimeout(element, AXHelper.defaultTimeout)
+        guard AXHelper.copyString(element, kAXSubroleAttribute as String) == (kAXCloseButtonSubrole as String) else {
             return false
         }
 
@@ -339,211 +387,197 @@ class DockMonitor: ObservableObject {
             return false
         }
 
-        guard pid != ProcessInfo.processInfo.processIdentifier else { return false }
-
         guard let app = NSRunningApplication(processIdentifier: pid),
-              app.activationPolicy == .regular else {
+              app.activationPolicy == .regular,
+              !AppPolicy.isQuitExcluded(app: app) else {
             return false
         }
 
-        let excluded: Set<String> = [
-            "com.apple.finder",
-            "com.apple.dock",
-            "com.apple.loginwindow",
-            "com.apple.SystemUIServer",
-            "com.apple.WindowManager",
-            "com.jacktony.dockminimizer",
-            "com.dockflow.app"
-        ]
-
-        if let bid = app.bundleIdentifier {
-            if excluded.contains(bid) || AppExclusionManager.shared.isExcluded(bundleIdentifier: bid) {
-                LogService.shared.log(category: "CloseButton", message: "Приложение \(app.localizedName ?? bid) в списке исключений, обычное закрытие")
-                return false
-            }
+        // Validate that the close button belongs to a top-level window's own kAXCloseButtonAttribute
+        guard WindowClassifier.resolveTopLevelWindow(forCloseButton: element, pid: pid) != nil else {
+            return false
         }
 
-        LogService.shared.log(category: "CloseButton", message: "Клик по красному крестику: \(app.localizedName ?? "") (PID: \(pid))")
-        HapticFeedbackService.shared.playTap()
-
-        // Ставим приложение на контроль закрытия
-        AutoQuitter.shared.armForClose(pid: pid)
-
-        // Проверяем количество стандартных окон
-        let axApp = AXUIElementCreateApplication(pid)
-        var windowsVal: AnyObject?
-        _ = AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsVal)
-        let windows = (windowsVal as? [AXUIElement]) ?? []
-
-        let standardWindows = windows.filter { win in
-            var subVal: AnyObject?
-            AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subVal)
-            let sub = (subVal as? String) ?? ""
-            return sub == (kAXStandardWindowSubrole as String) || sub == ""
+        let classified = WindowClassifier.classifyWindows(for: pid)
+        guard !classified.isEmpty else {
+            return false
         }
 
-        if standardWindows.count <= 1 {
-            // Одно окно (или последнее):
-            // ВАЖНО: Мы перехватываем клик (return true), чтобы окно НЕ закрывалось отдельно до завершения!
-            // Браузеры (Chrome, Safari) и приложения сохраняют свои открытые вкладки/окна,
-            // только если завершаются целиком с открытыми окнами (ровно так, как работает Command+Q).
-            LogService.shared.log(category: "CloseButton", message: "Завершаем приложение целиком с сохранением сессии (Cmd+Q): \(app.localizedName ?? "")")
+        let appName = app.localizedName ?? (app.bundleIdentifier ?? "App")
+
+        // Pre-close termination ONLY for explicit browser allowlist on their final top-level window
+        // so open tabs/sessions are preserved cleanly.
+        if AppPolicy.isSessionPreservingBrowser(bundleIdentifier: app.bundleIdentifier), classified.count == 1 {
+            LogService.shared.log(category: "CloseButton", message: "Closing last window of browser \(appName) (PID: \(pid)) via ⌘Q to preserve session")
+            HapticFeedbackService.shared.playTap()
             DispatchQueue.main.async {
                 app.terminate()
             }
             return true
-        } else {
-            // Несколько окон: даем текущему окну закрыться, и если не осталось окон — завершаем приложение
-            LogService.shared.log(category: "CloseButton", message: "Осталось окон: \(standardWindows.count), закрываем окно")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                guard let checkApp = NSRunningApplication(processIdentifier: pid), !checkApp.isTerminated else { return }
-                let checkAx = AXUIElementCreateApplication(pid)
-                var checkWinsVal: AnyObject?
-                _ = AXUIElementCopyAttributeValue(checkAx, kAXWindowsAttribute as CFString, &checkWinsVal)
-                let checkWins = (checkWinsVal as? [AXUIElement]) ?? []
-                let remaining = checkWins.filter { win in
-                    var subVal: AnyObject?
-                    AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subVal)
-                    let sub = (subVal as? String) ?? ""
-                    return sub == (kAXStandardWindowSubrole as String) || sub == ""
-                }
-                if remaining.isEmpty {
-                    LogService.shared.log(category: "CloseButton", message: "Все окна закрыты, завершаем приложение: \(checkApp.localizedName ?? "")")
-                    checkApp.terminate()
-                } else {
-                    AutoQuitter.shared.disarmClose(pid: pid)
-                }
-            }
-            return false
         }
+
+        // For all non-browser apps (or browsers with 2+ windows), let macOS handle windowShouldClose
+        // and Save/Cancel sheets natively, then let AutoQuitter terminate once 0 windows remain.
+        LogService.shared.log(category: "CloseButton", message: "Arming AutoQuitter for \(appName) (PID: \(pid)), windows: \(classified.count)")
+        AutoQuitter.shared.armForClose(pid: pid)
+        return false
     }
+
+    // MARK: - Middle-Click Handling
 
     private func handleMiddleClick(event: CGEvent) -> Bool {
         let actionRaw = UserDefaults.standard.string(forKey: "middleClickAction") ?? "newWindow"
         guard actionRaw != "disabled" else { return false }
 
         let location = event.location
-        let screenHeight = NSScreen.main?.frame.height ?? CGDisplayBounds(CGMainDisplayID()).height
-        let dockHeight: CGFloat = 140
-
-        guard location.y >= screenHeight - dockHeight else { return false }
-        guard let appInfo = getAppInfoAtDockLocation(location) else { return false }
-
-        HapticFeedbackService.shared.playTap()
-        LogService.shared.log(category: "MiddleClick", message: "Клик колёсиком по Доку: \(appInfo.title), действие: \(actionRaw)")
-
-        // Ищем приложение
-        var targetApp: NSRunningApplication?
-        if let urlStr = appInfo.urlString, let itemURL = URL(string: urlStr) {
-            targetApp = NSWorkspace.shared.runningApplications.first { app in
-                app.bundleURL?.standardizedFileURL == itemURL.standardizedFileURL
-            }
+        guard let dockItem = DockGeometryService.shared.itemAt(location) else {
+            return false
         }
-        if targetApp == nil {
-            let clicked = appInfo.title.lowercased()
-            targetApp = NSWorkspace.shared.runningApplications.first { app in
-                let name = (app.localizedName ?? "").lowercased()
-                return name == clicked || name.contains(clicked) || clicked.contains(name)
-            }
-        }
+
+        let targetApp = findRunningApp(for: dockItem)
+        LogService.shared.log(category: "MiddleClick", message: "Middle click on Dock item \(dockItem.title), action: \(actionRaw)")
 
         switch actionRaw {
         case "newWindow":
             if let app = targetApp {
-                app.activate()
-                // Отправляем ⌘N
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                    let src = CGEventSource(stateID: .hidSystemState)
-                    let keyDown = CGEvent(keyboardEventSource: src, virtualKey: 0x2D, keyDown: true) // 'N'
-                    keyDown?.flags = .maskCommand
-                    let keyUp = CGEvent(keyboardEventSource: src, virtualKey: 0x2D, keyDown: false)
-                    keyUp?.flags = .maskCommand
-
-                    keyDown?.post(tap: .cghidEventTap)
-                    keyUp?.post(tap: .cghidEventTap)
+                triggerNewWindow(for: app)
+                HapticFeedbackService.shared.playTap()
+                return true
+            } else if let url = dockItem.url {
+                NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                    if let error {
+                        LogService.shared.log(level: .error, category: "MiddleClick", message: "Failed to launch app: \(error.localizedDescription)")
+                    }
                 }
-            } else if let urlStr = appInfo.urlString, let url = URL(string: urlStr) {
-                NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
-            }
-            return true
-
-        case "quitApp":
-            if let app = targetApp {
-                app.terminate()
+                HapticFeedbackService.shared.playTap()
                 return true
             }
+            return false
+
+        case "quitApp":
+            if let app = targetApp, !AppPolicy.isQuitExcluded(app: app) {
+                HapticFeedbackService.shared.playTap()
+                DispatchQueue.main.async {
+                    app.terminate()
+                }
+                return true
+            }
+            return false
 
         case "hideApp":
             if let app = targetApp {
-                app.hide()
+                HapticFeedbackService.shared.playTap()
+                DispatchQueue.main.async {
+                    app.hide()
+                }
                 return true
             }
+            return false
 
         default:
-            break
+            return false
+        }
+    }
+
+    private func triggerNewWindow(for app: NSRunningApplication) {
+        let pid = app.processIdentifier
+        if tryPressNewWindowMenuItem(pid: pid) {
+            return
         }
 
+        DispatchQueue.main.async {
+            app.activate()
+        }
+
+        // Wait up to 400ms for activation before posting layout-aware ⌘N directly to target PID
+        DispatchQueue.global(qos: .userInteractive).async {
+            let deadline = Date().addingTimeInterval(0.4)
+            while Date() < deadline {
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+                    break
+                }
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+
+            let keyCode = Self.virtualKeyCode(for: "n") ?? 0x2D
+            guard let src = CGEventSource(stateID: .hidSystemState),
+                  let keyDown = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false) else {
+                return
+            }
+            keyDown.flags = .maskCommand
+            keyUp.flags = .maskCommand
+            keyDown.postToPid(pid)
+            keyUp.postToPid(pid)
+        }
+    }
+
+    private func tryPressNewWindowMenuItem(pid: pid_t) -> Bool {
+        let axApp = AXUIElementCreateApplication(pid)
+        AXHelper.setTimeout(axApp, AXHelper.defaultTimeout)
+        guard let menuBar = AXHelper.copyValue(axApp, kAXMenuBarAttribute as String),
+              let menuBarItems = AXHelper.copyValue(menuBar as! AXUIElement, kAXChildrenAttribute as String) as? [AXUIElement] else {
+            return false
+        }
+
+        // Scan first 4 top-level menus (Apple, App, File, ...) for a direct ⌘N menu item
+        for topItem in menuBarItems.prefix(4) {
+            guard let menus = AXHelper.copyValue(topItem, kAXChildrenAttribute as String) as? [AXUIElement] else {
+                continue
+            }
+            for menu in menus {
+                guard let entries = AXHelper.copyValue(menu, kAXChildrenAttribute as String) as? [AXUIElement] else {
+                    continue
+                }
+                for entry in entries {
+                    let cmdChar = AXHelper.copyString(entry, kAXMenuItemCmdCharAttribute as String)
+                    let cmdMod = (AXHelper.copyValue(entry, kAXMenuItemCmdModifiersAttribute as String) as? NSNumber)?.intValue ?? 0
+                    if cmdChar?.uppercased() == "N" && cmdMod == 0 {
+                        let enabled = AXHelper.copyBool(entry, kAXEnabledAttribute as String) ?? true
+                        if enabled && AXUIElementPerformAction(entry, kAXPressAction as CFString) == .success {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
         return false
     }
 
-    func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Bool {
-        if type == .otherMouseDown {
-            let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
-            if buttonNumber == 2 { // Middle click (wheel)
-                return autoreleasepool {
-                    return handleMiddleClick(event: event)
-                }
-            }
-            return false
+    /// Resolves virtual keycode matching ASCII character `'n'` under current keyboard layout.
+    private static func virtualKeyCode(for targetChar: Character) -> CGKeyCode? {
+        guard let inputSource = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let rawPtr = TISGetInputSourceProperty(inputSource, kTISPropertyUnicodeKeyLayoutData) else {
+            return nil
         }
+        let layoutData = unsafeBitCast(rawPtr, to: CFData.self)
+        guard let bytePtr = CFDataGetBytePtr(layoutData) else { return nil }
+        let keyboardLayout = UnsafePointer<UCKeyboardLayout>(OpaquePointer(bytePtr))
 
-        guard type == .leftMouseDown else { return false }
-
-        return autoreleasepool {
-            let location = event.location
-            let mainScreenID = CGMainDisplayID()
-            let displayBounds = CGDisplayBounds(mainScreenID)
-            let screenHeight = displayBounds.height
-
-            let dockHeight: CGFloat = 140
-
-            // 1. Проверяем клик по Доку (для сворачивания / разворачивания с Джином)
-            if location.y >= screenHeight - dockHeight {
-                guard let appInfo = getAppInfoAtDockLocation(location) else { return false }
-                guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
-
-                var isMatch = false
-                if let urlStr = appInfo.urlString, let itemURL = URL(string: urlStr), let frontURL = frontApp.bundleURL {
-                    if itemURL.standardizedFileURL == frontURL.standardizedFileURL {
-                        isMatch = true
-                    }
-                }
-
-                if !isMatch, let frontmostName = currentFrontmostName {
-                    let clicked = appInfo.title.lowercased()
-                    let front = frontmostName.lowercased()
-                    if clicked == front || clicked.contains(front) || front.contains(clicked) {
-                        isMatch = true
-                    }
-                }
-
-                guard isMatch else { return false }
-
-                LogService.shared.log(category: "DockMonitor", message: "Клик по иконке Дока: \(appInfo.title)")
-
-                let shouldConsume = WindowMinimizer.shared.toggleMinimization(app: frontApp)
-                return shouldConsume
-            }
-
-            // 2. Проверяем клик по красному крестику (полное закрытие через Cmd+Q)
-            let quitOnClose = UserDefaults.standard.object(forKey: "quitOnCloseButton") == nil || UserDefaults.standard.bool(forKey: "quitOnCloseButton")
-            if quitOnClose {
-                if handleCloseButtonClick(at: location) {
-                    return true
+        let targetLower = String(targetChar).lowercased()
+        for keyCode in 0..<128 {
+            var deadKeyState: UInt32 = 0
+            var length = 0
+            var chars = [UniChar](repeating: 0, count: 4)
+            let status = UCKeyTranslate(
+                keyboardLayout,
+                UInt16(keyCode),
+                UInt16(kUCKeyActionDown),
+                0,
+                UInt32(LMGetKbdType()),
+                OptionBits(kUCKeyTranslateNoDeadKeysBit),
+                &deadKeyState,
+                chars.count,
+                &length,
+                &chars
+            )
+            if status == noErr && length > 0 {
+                let produced = String(utf16CodeUnits: chars, count: length).lowercased()
+                if produced == targetLower {
+                    return CGKeyCode(keyCode)
                 }
             }
-
-            return false
         }
+        return nil
     }
 }

@@ -1,9 +1,9 @@
 import Cocoa
 import SwiftUI
 
-class UpdateProgressViewModel: ObservableObject {
-    @Published var stageTitle: String = "Подготовка..."
-    @Published var stageDetail: String = "Инициализация соединения..."
+final class UpdateProgressViewModel: ObservableObject {
+    @Published var stageTitle: String = L10n.updateStagePreparing
+    @Published var stageDetail: String = L10n.updateStageInit
     @Published var progress: Double = 0.0
     @Published var isIndeterminate: Bool = true
     @Published var isFailed: Bool = false
@@ -15,6 +15,7 @@ class UpdateProgressViewModel: ObservableObject {
 }
 
 struct UpdateProgressView: View {
+    @ObservedObject private var lm = LocalizationManager.shared
     @ObservedObject var viewModel: UpdateProgressViewModel
     let targetVersion: String
 
@@ -32,7 +33,7 @@ struct UpdateProgressView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Обновление DockFlow \(targetVersion)")
+                    Text(L10n.updateWindowHeader(version: targetVersion))
                         .font(.system(size: 15, weight: .semibold))
                     Text(viewModel.stageTitle)
                         .font(.system(size: 12, weight: .medium))
@@ -68,19 +69,19 @@ struct UpdateProgressView: View {
 
             HStack {
                 if viewModel.isFailed {
-                    Button("Скачать вручную") {
+                    Button(L10n.updateDownloadManually) {
                         viewModel.onManualDownload?()
                     }
                     Spacer()
-                    Button("Повторить") {
+                    Button(L10n.updateRetry) {
                         viewModel.onRetry?()
                     }
-                    Button("Закрыть") {
+                    Button(L10n.close) {
                         viewModel.onCancel?()
                     }
                 } else {
                     Spacer()
-                    Button("Отмена") {
+                    Button(L10n.updateCancel) {
                         viewModel.onCancel?()
                     }
                     .keyboardShortcut(.cancelAction)
@@ -92,28 +93,55 @@ struct UpdateProgressView: View {
     }
 }
 
-class UpdateDownloader: NSObject, URLSessionDownloadDelegate {
+final class UpdateDownloader: NSObject, URLSessionDownloadDelegate {
     private var session: URLSession?
     private var downloadTask: URLSessionDownloadTask?
+    private var stageDirectory: URL?
 
     var onProgress: ((Double, Int64, Int64) -> Void)?
     var onComplete: ((Result<URL, Error>) -> Void)?
 
+    deinit {
+        cancel()
+    }
+
     func start(url: URL) {
+        // Invalidate any prior session/task before creating a new one (prevents URLSession leaks on retry)
+        cancel()
+
+        guard let stageDir = UpdateService.createPrivateStagingDirectory() else {
+            onComplete?(.failure(UpdateError.stagingDirectoryError))
+            return
+        }
+        stageDirectory = stageDir
+
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 300
-        session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
-        downloadTask = session?.downloadTask(with: url)
+        let newSession = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+        session = newSession
+        downloadTask = newSession.downloadTask(with: url)
         downloadTask?.resume()
     }
 
     func cancel() {
         downloadTask?.cancel()
+        downloadTask = nil
         session?.invalidateAndCancel()
+        session = nil
+        if let dir = stageDirectory {
+            try? FileManager.default.removeItem(at: dir)
+            stageDirectory = nil
+        }
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
         let progress: Double
         if totalBytesExpectedToWrite > 0 {
             progress = min(max(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite), 0.0), 1.0)
@@ -123,20 +151,52 @@ class UpdateDownloader: NSObject, URLSessionDownloadDelegate {
         onProgress?(progress, totalBytesWritten, totalBytesExpectedToWrite)
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        let tempDMG = URL(fileURLWithPath: "/tmp/DockFlow_Update.dmg")
-        try? FileManager.default.removeItem(at: tempDMG)
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        defer {
+            session.finishTasksAndInvalidate()
+            if self.session === session {
+                self.session = nil
+                self.downloadTask = nil
+            }
+        }
+
+        guard let stageDir = stageDirectory ?? UpdateService.createPrivateStagingDirectory() else {
+            onComplete?(.failure(UpdateError.stagingDirectoryError))
+            return
+        }
+
+        let stagedDMG = stageDir.appendingPathComponent("DockFlow_Update.dmg")
+        try? FileManager.default.removeItem(at: stagedDMG)
         do {
-            try FileManager.default.copyItem(at: location, to: tempDMG)
-            onComplete?(.success(tempDMG))
+            try FileManager.default.copyItem(at: location, to: stagedDMG)
+            // Keep stageDirectory intact so UpdateService uses it for verification & mounting
+            onComplete?(.success(stagedDMG))
         } catch {
+            try? FileManager.default.removeItem(at: stageDir)
+            stageDirectory = nil
             onComplete?(.failure(error))
         }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error = error {
-            if (error as NSError).code != NSURLErrorCancelled {
+        defer {
+            session.finishTasksAndInvalidate()
+            if self.session === session {
+                self.session = nil
+                self.downloadTask = nil
+            }
+        }
+        if let error {
+            let nsErr = error as NSError
+            if nsErr.code != NSURLErrorCancelled {
+                if let dir = stageDirectory {
+                    try? FileManager.default.removeItem(at: dir)
+                    stageDirectory = nil
+                }
                 onComplete?(.failure(error))
             }
         }

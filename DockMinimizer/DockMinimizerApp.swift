@@ -2,33 +2,39 @@ import SwiftUI
 import Cocoa
 import ServiceManagement
 
-class LaunchAtLoginManager: ObservableObject {
+/// Manages Launch at Login registration via SMAppService.
+final class LaunchAtLoginManager: ObservableObject {
     static let shared = LaunchAtLoginManager()
 
-    @Published var isEnabled: Bool {
-        didSet {
-            setEnabled(isEnabled)
+    @Published var isEnabled: Bool = false
+
+    private init() {
+        refreshStatus()
+    }
+
+    func refreshStatus() {
+        let actual = SMAppService.mainApp.status == .enabled
+        if isEnabled != actual {
+            isEnabled = actual
         }
     }
 
-    private init() {
-        isEnabled = SMAppService.mainApp.status == .enabled
-    }
-
-    private func setEnabled(_ enabled: Bool) {
+    func setEnabled(_ enabled: Bool) {
         do {
             if enabled {
                 try SMAppService.mainApp.register()
             } else {
                 try SMAppService.mainApp.unregister()
             }
+            refreshStatus()
         } catch {
-            print("Failed to \(enabled ? "enable" : "disable") launch at login: \(error)")
+            LogService.shared.log(level: .error, category: "LaunchAtLogin", message: "Failed to \(enabled ? "enable" : "disable") launch at login: \(error.localizedDescription)")
+            refreshStatus()
         }
     }
 }
 
-// MARK: - Setting Row Component (macOS 27 System Style)
+// MARK: - Setting Row Component
 
 struct SettingRow<Content: View>: View {
     let iconName: String
@@ -93,7 +99,6 @@ struct ExclusionsSheetView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -119,8 +124,7 @@ struct ExclusionsSheetView: View {
 
             Divider()
 
-            // List of excluded apps
-            let items = exclusionManager.getExcludedAppItems()
+            let items = exclusionManager.excludedAppItems
             if items.isEmpty {
                 VStack(spacing: 10) {
                     Spacer()
@@ -182,9 +186,11 @@ struct ExclusionsSheetView: View {
 
             Divider()
 
-            // Quick Add suggestions
+            let telegramID = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.tdesktop.Telegram") != nil
+                ? "com.tdesktop.Telegram"
+                : "ru.keepcoder.Telegram"
             let suggestions = [
-                ("Telegram", "ru.keepcoder.Telegram"),
+                ("Telegram", telegramID),
                 ("Discord", "com.hnc.Discord"),
                 ("Spotify", "com.spotify.client"),
                 (L10n.musicPreset, "com.apple.Music")
@@ -212,7 +218,6 @@ struct ExclusionsSheetView: View {
                 Divider()
             }
 
-            // Bottom action buttons
             HStack {
                 Button(action: {
                     exclusionManager.addAppViaFilePicker()
@@ -238,18 +243,27 @@ struct ExclusionsSheetView: View {
     }
 }
 
-// MARK: - Modern Settings View (macOS 27 Aesthetic)
+// MARK: - Settings View
 
 struct SettingsView: View {
+    var onClose: (() -> Void)? = nil
+
     @ObservedObject private var lm = LocalizationManager.shared
-    @AppStorage("loggingEnabled") private var loggingEnabled = false
+    @ObservedObject private var launchAtLoginManager = LaunchAtLoginManager.shared
+    @ObservedObject private var dockMonitor = DockMonitor.shared
+    @ObservedObject private var exclusionManager = AppExclusionManager.shared
+    @ObservedObject private var hapticService = HapticFeedbackService.shared
+    @ObservedObject private var logService = LogService.shared
+    @ObservedObject private var updateService = UpdateService.shared
+
+    @AppStorage("genieMinimizeEnabled") private var genieMinimizeEnabled = true
     @AppStorage("showPanelOnLaunch") private var showPanelOnLaunch = false
     @AppStorage("quitOnCloseButton") private var quitOnCloseButton = true
-    @AppStorage("hapticFeedbackEnabled") private var hapticFeedbackEnabled = true
     @AppStorage("middleClickAction") private var middleClickAction = "newWindow"
-    @StateObject private var launchAtLoginManager = LaunchAtLoginManager.shared
-    @StateObject private var dockMonitor = DockMonitor.shared
-    @StateObject private var exclusionManager = AppExclusionManager.shared
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.0.0"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -264,14 +278,14 @@ struct SettingsView: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 64, height: 64)
+                        .frame(width: 60, height: 60)
                         .shadow(color: Color.blue.opacity(0.4), radius: 10, x: 0, y: 5)
 
                     Image(systemName: "dock.rectangle")
-                        .font(.system(size: 30, weight: .medium))
+                        .font(.system(size: 28, weight: .medium))
                         .foregroundColor(.white)
                 }
-                .padding(.top, 16)
+                .padding(.top, 14)
 
                 VStack(spacing: 4) {
                     Text("DockFlow")
@@ -282,10 +296,9 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
 
-                // Status Pill
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(Color.green)
+                        .fill(dockMonitor.isFullyFunctional ? Color.green : Color.orange)
                         .frame(width: 8, height: 8)
                     Text(L10n.runningInBackground)
                         .font(.system(size: 11, weight: .medium))
@@ -295,15 +308,15 @@ struct SettingsView: View {
                 .padding(.vertical, 4)
                 .background(
                     Capsule()
-                        .fill(Color.green.opacity(0.12))
+                        .fill((dockMonitor.isFullyFunctional ? Color.green : Color.orange).opacity(0.12))
                 )
             }
-            .padding(.bottom, 16)
+            .padding(.bottom, 12)
 
             // Content Sections
             ScrollView {
-                VStack(spacing: 16) {
-                    // Section 1: Функции окон и Дока
+                VStack(spacing: 14) {
+                    // Section 1: Window & Dock Behavior
                     VStack(spacing: 0) {
                         SettingRow(
                             iconName: "sparkles",
@@ -311,9 +324,8 @@ struct SettingsView: View {
                             title: L10n.genieTitle,
                             subtitle: L10n.genieSubtitle
                         ) {
-                            Toggle("", isOn: .constant(true))
+                            Toggle("", isOn: $genieMinimizeEnabled)
                                 .labelsHidden()
-                                .disabled(true)
                         }
 
                         Divider()
@@ -325,7 +337,7 @@ struct SettingsView: View {
                             title: L10n.hapticTitle,
                             subtitle: L10n.hapticSubtitle
                         ) {
-                            Toggle("", isOn: $hapticFeedbackEnabled)
+                            Toggle("", isOn: $hapticService.isEnabled)
                                 .labelsHidden()
                         }
 
@@ -387,7 +399,7 @@ struct SettingsView: View {
                             .stroke(Color.primary.opacity(0.06), lineWidth: 1)
                     )
 
-                    // Section 2: Системные настройки
+                    // Section 2: System, Updates & Diagnostics
                     VStack(spacing: 0) {
                         SettingRow(
                             iconName: "bolt.fill",
@@ -397,7 +409,7 @@ struct SettingsView: View {
                         ) {
                             Toggle("", isOn: Binding(
                                 get: { launchAtLoginManager.isEnabled },
-                                set: { launchAtLoginManager.isEnabled = $0 }
+                                set: { launchAtLoginManager.setEnabled($0) }
                             ))
                             .labelsHidden()
                         }
@@ -432,6 +444,37 @@ struct SettingsView: View {
                             .labelsHidden()
                             .frame(width: 155)
                         }
+
+                        Divider()
+                            .padding(.leading, 58)
+
+                        SettingRow(
+                            iconName: "arrow.triangle.2.circlepath",
+                            iconColor: .blue,
+                            title: L10n.updatePolicyTitle,
+                            subtitle: L10n.updatePolicySubtitle
+                        ) {
+                            Picker("", selection: $updateService.checkPolicy) {
+                                ForEach(UpdateCheckPolicy.allCases, id: \.self) { policy in
+                                    Text(policy.displayName).tag(policy)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 155)
+                        }
+
+                        Divider()
+                            .padding(.leading, 58)
+
+                        SettingRow(
+                            iconName: "doc.text.magnifyingglass",
+                            iconColor: .gray,
+                            title: L10n.loggingTitle,
+                            subtitle: L10n.loggingSubtitle
+                        ) {
+                            Toggle("", isOn: $logService.loggingEnabled)
+                                .labelsHidden()
+                        }
                     }
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -442,7 +485,7 @@ struct SettingsView: View {
                             .stroke(Color.primary.opacity(0.06), lineWidth: 1)
                     )
 
-                    // Section 3: Разрешение Универсального доступа
+                    // Section 3: Accessibility Permission
                     VStack(spacing: 0) {
                         SettingRow(
                             iconName: "hand.raised.fill",
@@ -477,21 +520,25 @@ struct SettingsView: View {
                     )
                 }
                 .padding(.horizontal, 20)
+                .padding(.bottom, 8)
             }
 
             Divider()
-                .padding(.top, 12)
 
             // Footer
             HStack {
-                Text("DockFlow v1.0.5 • Fork of DockMinimizer")
+                Text("DockFlow v\(appVersion) • Fork of DockMinimizer")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
 
                 Spacer()
 
                 Button(L10n.close) {
-                    NSApplication.shared.keyWindow?.close()
+                    if let onClose {
+                        onClose()
+                    } else {
+                        NSApplication.shared.windows.first(where: { $0.title == L10n.settingsWindowTitle })?.close()
+                    }
                 }
                 .controlSize(.small)
                 .keyboardShortcut(.cancelAction)
@@ -503,11 +550,15 @@ struct SettingsView: View {
                 .foregroundColor(.red)
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
             .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
         }
-        .frame(width: 460, height: 780)
+        .frame(width: 460)
+        .frame(minHeight: 500, idealHeight: 680, maxHeight: 760)
         .background(Color(NSColor.windowBackgroundColor))
+        .onAppear {
+            launchAtLoginManager.refreshStatus()
+        }
         .sheet(isPresented: $exclusionManager.showSheet) {
             ExclusionsSheetView()
         }
@@ -521,15 +572,8 @@ struct DockMinimizerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        WindowGroup("DockFlow", id: "settings") {
-            SettingsView()
+        Settings {
+            EmptyView()
         }
-        .windowStyle(.automatic)
-        .defaultPosition(.center)
-        .defaultSize(width: 460, height: 780)
-        .commands {
-            CommandGroup(replacing: .windowArrangement) { }
-        }
-        .defaultLaunchBehavior(.suppressed)
     }
 }

@@ -1,35 +1,57 @@
 import AppKit
+import os
 
-/// Сервис тактильного отклика (Haptic Feedback) для трекпадов Force Touch и Magic Trackpad
-class HapticFeedbackService {
+/// Haptic feedback service for Force Touch and Magic Trackpad devices.
+final class HapticFeedbackService: ObservableObject {
     static let shared = HapticFeedbackService()
 
-    private var _cachedEnabled: Bool?
-    var isEnabled: Bool {
-        get {
-            if let cached = _cachedEnabled { return cached }
-            let key = "hapticFeedbackEnabled"
-            let val = UserDefaults.standard.object(forKey: key) == nil || UserDefaults.standard.bool(forKey: key)
-            _cachedEnabled = val
-            return val
-        }
-        set {
-            _cachedEnabled = newValue
-            UserDefaults.standard.set(newValue, forKey: "hapticFeedbackEnabled")
+    private static let prefKey = "hapticFeedbackEnabled"
+    private let enabledLock = OSAllocatedUnfairLock<Bool>(initialState: true)
+
+    @Published var isEnabled: Bool {
+        didSet {
+            enabledLock.withLock { $0 = isEnabled }
+            UserDefaults.standard.set(isEnabled, forKey: Self.prefKey)
         }
     }
 
-    private init() {}
+    private init() {
+        let initial = Self.readDefault()
+        self.isEnabled = initial
+        self.enabledLock.withLock { $0 = initial }
+    }
 
-    /// Лёгкий тактильный клик (при сворачивании, среднем клике или закрытии)
+    private static func readDefault() -> Bool {
+        UserDefaults.standard.object(forKey: prefKey) == nil || UserDefaults.standard.bool(forKey: prefKey)
+    }
+
+    /// Refreshes state after legacy preferences migration.
+    func reloadPreference() {
+        let val = Self.readDefault()
+        enabledLock.withLock { $0 = val }
+        if Thread.isMainThread {
+            if isEnabled != val { isEnabled = val }
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if self.isEnabled != val { self.isEnabled = val }
+            }
+        }
+    }
+
+    /// Plays a gentle generic tap on the trackpad.
     func playTap() {
-        guard isEnabled else { return }
-        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        guard enabledLock.withLock({ $0 }) else { return }
+        DispatchQueue.main.async {
+            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        }
     }
 
-    /// Более выраженный тактильный щелчок
+    /// Plays a stronger alignment haptic click.
     func playAction() {
-        guard isEnabled else { return }
-        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        guard enabledLock.withLock({ $0 }) else { return }
+        DispatchQueue.main.async {
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        }
     }
 }
