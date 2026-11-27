@@ -502,18 +502,22 @@ enum Draw {
     }
 }
 
-// MARK: - SwiftUI Embedded UI Frame Renderer for GIF 3 (UI Flow 4K)
+// MARK: - SwiftUI Embedded UI Frame Renderer for GIF 3 (UI Flow 4K - Zero Overlap, Sliding Pills, Spring Toggle)
+
+struct TabFrameMetrics {
+    let widths: [CGFloat]
+    let centers: [CGFloat]
+}
 
 struct UIPanelSnapshotView: View {
     let lang: Language
-    let activeTab: Int // 0 = rules, 1 = exclusions, 2 = system
-    let tabPillFraction: CGFloat // smoothly animated 0.0 -> 2.0
-    let toggleValue: Bool
-    let middleClickProgress: CGFloat // 0 = New Window, 1 = Quit App
+    let targetTab: Int
+    let tabPillPosition: CGFloat // continuously animated 0.0 -> 1.0 -> 2.0 -> 0.0
+    let toggleProgress: CGFloat  // continuously animated 0.0 (off) -> 1.0 (on)
+    let midPillPosition: CGFloat // continuously animated 0.0 (New Win) -> 1.0 (Quit)
     let panelHeight: CGFloat
-    let tab1ContentOpacity: Double
-    let tab2ContentOpacity: Double
-    let tab3ContentOpacity: Double
+    let activeTabLayerOpacity: (tab0: Double, tab1: Double, tab2: Double)
+    let activeTabYOffset: (tab0: CGFloat, tab1: CGFloat, tab2: CGFloat)
     let icons: [(String, CGImage?)]
 
     private let activeFill = Color(white: 0.94)
@@ -528,37 +532,71 @@ struct UIPanelSnapshotView: View {
         .custom("Avenir Next", size: size).weight(weight)
     }
 
+    private func tabRowText(t0: String, t1: String, t2: String, w0: CGFloat, w1: CGFloat, w2: CGFloat, spacing: CGFloat, pad: CGFloat, color: Color) -> some View {
+        HStack(spacing: spacing) {
+            Text(t0)
+                .font(bodyFont(11.5, weight: targetTab == 0 ? .semibold : .medium))
+                .frame(width: w0, height: 24)
+            Text(t1)
+                .font(bodyFont(11.5, weight: targetTab == 1 ? .semibold : .medium))
+                .frame(width: w1, height: 24)
+            Text(t2)
+                .font(bodyFont(11.5, weight: targetTab == 2 ? .semibold : .medium))
+                .frame(width: w2, height: 24)
+        }
+        .foregroundColor(color)
+        .padding(pad)
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with sliding pill
+        let t0 = lang == .ru ? "Правила" : "Rules"
+        let t1 = lang == .ru ? "Исключения (4)" : "Exclusions (4)"
+        let t2 = lang == .ru ? "Система" : "System"
+        let w0: CGFloat = lang == .ru ? 68 : 54
+        let w1: CGFloat = lang == .ru ? 108 : 102
+        let w2: CGFloat = lang == .ru ? 66 : 62
+        let spacing: CGFloat = 2
+        let pad: CGFloat = 3
+
+        let p = tabPillPosition
+        let pillWidth: CGFloat = {
+            if p <= 1.0 { return lerp(w0, w1, p) }
+            return lerp(w1, w2, p - 1.0)
+        }()
+        let pillX: CGFloat = {
+            let x0: CGFloat = pad
+            let x1: CGFloat = pad + w0 + spacing
+            let x2: CGFloat = pad + w0 + spacing + w1 + spacing
+            if p <= 1.0 { return lerp(x0, x1, p) }
+            return lerp(x1, x2, p - 1.0)
+        }()
+
+        return VStack(spacing: 0) {
             HStack(spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("DockFlow").font(bodyFont(13.5, weight: .bold)).foregroundColor(primaryText)
                     Text("v2.2.0").font(.system(size: 11, design: .monospaced)).foregroundColor(secondaryText)
                 }
                 Spacer()
-                let t0 = lang == .ru ? "Правила" : "Rules"
-                let t1 = lang == .ru ? "Исключения (4)" : "Exclusions (4)"
-                let t2 = lang == .ru ? "Система" : "System"
 
-                HStack(spacing: 2) {
-                    Text(t0)
-                        .font(bodyFont(11.5, weight: activeTab == 0 ? .semibold : .medium))
-                        .padding(.horizontal, 9).padding(.vertical, 4)
-                        .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(activeTab == 0 ? activeFill : .clear))
-                        .foregroundColor(activeTab == 0 ? activeText : secondaryText)
-                    Text(t1)
-                        .font(bodyFont(11.5, weight: activeTab == 1 ? .semibold : .medium))
-                        .padding(.horizontal, 9).padding(.vertical, 4)
-                        .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(activeTab == 1 ? activeFill : .clear))
-                        .foregroundColor(activeTab == 1 ? activeText : secondaryText)
-                    Text(t2)
-                        .font(bodyFont(11.5, weight: activeTab == 2 ? .semibold : .medium))
-                        .padding(.horizontal, 9).padding(.vertical, 4)
-                        .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(activeTab == 2 ? activeFill : .clear))
-                        .foregroundColor(activeTab == 2 ? activeText : secondaryText)
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                        .fill(activeFill)
+                        .frame(width: pillWidth, height: 24)
+                        .offset(x: pillX)
+
+                    tabRowText(t0: t0, t1: t1, t2: t2, w0: w0, w1: w1, w2: w2, spacing: spacing, pad: pad, color: secondaryText)
+
+                    tabRowText(t0: t0, t1: t1, t2: t2, w0: w0, w1: w1, w2: w2, spacing: spacing, pad: pad, color: activeText)
+                        .mask(
+                            HStack(spacing: 0) {
+                                RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                                    .frame(width: pillWidth, height: 24)
+                                    .offset(x: pillX)
+                                Spacer(minLength: 0)
+                            }
+                        )
                 }
-                .padding(3)
                 .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(wellFill))
                 .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(wellBorder, lineWidth: 1))
             }
@@ -568,19 +606,25 @@ struct UIPanelSnapshotView: View {
 
             VStack(spacing: 0) {
                 ZStack(alignment: .top) {
-                    if tab1ContentOpacity > 0.02 {
-                        rulesTab.opacity(tab1ContentOpacity)
+                    if activeTabLayerOpacity.tab0 > 0.01 {
+                        rulesTab
+                            .opacity(activeTabLayerOpacity.tab0)
+                            .offset(y: activeTabYOffset.tab0)
                     }
-                    if tab2ContentOpacity > 0.02 {
-                        exclusionsTab.opacity(tab2ContentOpacity)
+                    if activeTabLayerOpacity.tab1 > 0.01 {
+                        exclusionsTab
+                            .opacity(activeTabLayerOpacity.tab1)
+                            .offset(y: activeTabYOffset.tab1)
                     }
-                    if tab3ContentOpacity > 0.02 {
-                        systemTab.opacity(tab3ContentOpacity)
+                    if activeTabLayerOpacity.tab2 > 0.01 {
+                        systemTab
+                            .opacity(activeTabLayerOpacity.tab2)
+                            .offset(y: activeTabYOffset.tab2)
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .clipped()
-
-                Spacer(minLength: 0)
+                .padding(.bottom, 10)
 
                 VStack(spacing: 9) {
                     Rectangle().fill(hairline).frame(height: 1)
@@ -605,26 +649,36 @@ struct UIPanelSnapshotView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private func toggleView(_ on: Bool) -> some View {
-        Capsule(style: .continuous)
-            .fill(on ? activeFill : Color.white.opacity(0.18))
+    private func toggleView(_ progress: CGFloat) -> some View {
+        let p = clamp(progress)
+        // Pill-stretch physics at mid-transition (14 -> 18.5 -> 14)
+        let stretch = sin(p * .pi)
+        let knobW: CGFloat = 14.0 + 4.5 * stretch
+        let travel: CGFloat = 32.0 - 4.0 - knobW
+        let knobX: CGFloat = lerp(-(travel / 2.0), (travel / 2.0), p)
+        let trackR = lerp(0.28, 0.94, p)
+        let trackG = lerp(0.20, 0.94, p)
+        let trackB = lerp(0.27, 0.94, p)
+        let knobShade = lerp(0.95, 0.06, p)
+        return Capsule(style: .continuous)
+            .fill(Color(red: trackR, green: trackG, blue: trackB))
             .frame(width: 32, height: 18)
             .overlay(
                 Capsule(style: .continuous)
-                    .fill(on ? activeText : Color.white.opacity(0.95))
-                    .frame(width: 14, height: 14)
-                    .offset(x: on ? 7 : -7)
+                    .fill(Color(white: knobShade))
+                    .frame(width: knobW, height: 14)
+                    .offset(x: knobX)
             )
     }
 
-    private func ruleCard(_ title: String, _ sub: String, _ on: Bool) -> some View {
+    private func ruleCard(_ title: String, _ sub: String, _ toggleP: CGFloat) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(bodyFont(12.5, weight: .semibold)).foregroundColor(primaryText)
                 Text(sub).font(bodyFont(11)).foregroundColor(secondaryText).lineLimit(2)
             }
             Spacer(minLength: 8)
-            toggleView(on)
+            toggleView(toggleP)
         }
         .padding(.horizontal, 13).padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(wellFill))
@@ -632,36 +686,65 @@ struct UIPanelSnapshotView: View {
     }
 
     private var rulesTab: some View {
-        VStack(spacing: 8) {
+        let segW: CGFloat = (392.0 - 12.0) / 4.0 // inner container width = 446 - 28 - 26 = 392, minus spacing/padding
+        let segGap: CGFloat = 4.0
+        let pillOffsetX: CGFloat = 3.0 + midPillPosition * (segW + segGap)
+
+        return VStack(spacing: 8) {
             ruleCard(
                 lang == .ru ? "Эффект Джинна в Доке" : "Genie Effect in Dock",
                 lang == .ru ? "Клик по иконке активного приложения в Доке плавно сворачивает его с анимацией" : "Clicking the active app icon in Dock smoothly minimizes it with animation",
-                toggleValue
+                toggleProgress
             )
             ruleCard(
                 lang == .ru ? "Полное закрытие по крестику (⌘Q)" : "Quit on Close Button (⌘Q)",
                 lang == .ru ? "Завершает приложение, когда закрывается его последнее окно. Вкладки сохраняются!" : "Quits the app when its last window is closed. Tabs and sessions are preserved!",
-                true
+                1.0
             )
             ruleCard(
                 lang == .ru ? "Тактильный отклик (Haptic)" : "Haptic Feedback",
                 lang == .ru ? "Виброотклик трекпада Force Touch при сворачивании и закрытии окон" : "Force Touch trackpad vibration when minimizing or closing windows",
-                true
+                1.0
             )
             VStack(alignment: .leading, spacing: 7) {
                 Text(lang == .ru ? "Клик колёсиком по Доку" : "Middle-Click on Dock").font(bodyFont(12, weight: .semibold)).foregroundColor(primaryText)
                 let opts = lang == .ru ? ["Новое окно", "Закрыть", "Скрыть", "Выкл"] : ["New Win", "Quit", "Hide", "Off"]
-                let selIdx = middleClickProgress > 0.5 ? 1 : 0
-                HStack(spacing: 4) {
-                    ForEach(Array(opts.enumerated()), id: \.offset) { idx, t in
-                        Text(t)
-                            .font(bodyFont(11, weight: idx == selIdx ? .semibold : .medium))
-                            .frame(maxWidth: .infinity).padding(.vertical, 5)
-                            .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(idx == selIdx ? activeFill : .clear))
-                            .foregroundColor(idx == selIdx ? activeText : secondaryText)
+
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                        .fill(activeFill)
+                        .frame(width: segW, height: 24)
+                        .offset(x: pillOffsetX)
+
+                    HStack(spacing: segGap) {
+                        ForEach(Array(opts.enumerated()), id: \.offset) { _, t in
+                            Text(t)
+                                .font(bodyFont(11, weight: .medium))
+                                .frame(width: segW, height: 24)
+                        }
                     }
+                    .foregroundColor(secondaryText)
+                    .padding(3)
+
+                    HStack(spacing: segGap) {
+                        ForEach(Array(opts.enumerated()), id: \.offset) { _, t in
+                            Text(t)
+                                .font(bodyFont(11, weight: .semibold))
+                                .frame(width: segW, height: 24)
+                        }
+                    }
+                    .foregroundColor(activeText)
+                    .padding(3)
+                    .mask(
+                        HStack(spacing: 0) {
+                            RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                                .frame(width: segW, height: 24)
+                                .offset(x: pillOffsetX)
+                            Spacer(minLength: 0)
+                        }
+                    )
                 }
-                .padding(3).background(RoundedRectangle(cornerRadius: 8.5, style: .continuous).fill(Color.black.opacity(0.14)))
+                .background(RoundedRectangle(cornerRadius: 8.5, style: .continuous).fill(Color.black.opacity(0.14)))
             }
             .padding(.horizontal, 13).padding(.vertical, 10)
             .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(wellFill))
@@ -737,7 +820,7 @@ struct UIPanelSnapshotView: View {
         HStack {
             Text(title).font(bodyFont(12, weight: .medium)).foregroundColor(primaryText)
             Spacer()
-            toggleView(on)
+            toggleView(on ? 1.0 : 0.0)
         }
         .padding(.horizontal, 13).padding(.vertical, 8.5)
     }
@@ -1054,7 +1137,7 @@ func generateUIFlow4K(outputPath: String, lang: Language) {
     let scale: CGFloat = 3.0 // Exact 3840x2160 4K!
     let pxW = Int(ptW * scale)
     let pxH = Int(ptH * scale)
-    let frameCount = 100
+    let frameCount = 165 // Smooth 3.3s loop @ 50fps browser-max
     let delay = 0.02
 
     let icons: [(String, CGImage?)] = [
@@ -1119,10 +1202,22 @@ func generateUIFlow4K(outputPath: String, lang: Language) {
     let frameCtx = CGContext(data: nil, width: pxW, height: pxH, bitsPerComponent: 8, bytesPerRow: pxW * 4, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
 
     // Pre-cache UI panel states or render cleanly using ImageRenderer per key phase -> even smoother!
-    let panelTopY: CGFloat = ptH - 46 // pinned neatly right under top Menu Bar!
+    let panelTopY: CGFloat = ptH - 48 // pinned neatly right under top Menu Bar!
     let panelCenterX: CGFloat = 925
-    let panelPresentationScale: CGFloat = 1.28
+    let panelPresentationScale: CGFloat = 1.20 // 1.20 * 3.0 = exact 3.60x pixel match!
     var cachedPanels: [String: CGImage] = [:]
+
+    // Helper: non-overlapping fade-out (0..0.42) -> crisp fade-in (0.43..1.0) without GIF blur dither bloat
+    func nonOverlappingTransition(_ trans: CGFloat) -> (outOpacity: Double, outY: CGFloat, inOpacity: Double, inY: CGFloat) {
+        let outP = clamp(trans / 0.42)
+        let inP = clamp((trans - 0.43) / 0.57)
+        return (
+            outOpacity: Double(1.0 - easeInOutCubic(outP)),
+            outY: -5.0 * outP,
+            inOpacity: Double(easeInOutCubic(inP)),
+            inY: 6.0 * (1.0 - easeOutCubic(inP))
+        )
+    }
 
     for f in 0..<frameCount {
         let t = CGFloat(f) / CGFloat(frameCount)
@@ -1131,105 +1226,139 @@ func generateUIFlow4K(outputPath: String, lang: Language) {
         frameCtx.draw(staticBg, in: CGRect(x: 0, y: 0, width: pxW, height: pxH))
         frameCtx.scaleBy(x: scale, y: scale)
 
-        // State choreography across 150 frames (3.0s loop):
-        // 0.00 - 0.14: Panel unfurls cleanly from menu bar (scale 0.96->1.0, alpha 0->1)
-        // 0.14 - 0.34: Toggle flips + MiddleClick switches ("Новое окно" -> "Закрыть")
-        // 0.34 - 0.56: Switches Rules -> Exclusions with smooth height morph (427 -> 392)
-        // 0.56 - 0.78: Switches Exclusions -> System with smooth height morph (392 -> 354)
-        // 0.78 - 1.00: Returns smoothly System -> Rules (354 -> 427) for seamless loop!
-
-        var activeTab = 0
-        var toggleOn = true
-        var midProgress: CGFloat = 0
+        var targetTab = 0
+        var tabPillPos: CGFloat = 0
+        var toggleProgress: CGFloat = 1.0
+        var midPillPos: CGFloat = 0.0
         var h: CGFloat = 427
-        var o1: Double = 1, o2: Double = 0, o3: Double = 0
+        var opacities: (Double, Double, Double) = (1, 0, 0)
+        var yOffsets: (CGFloat, CGFloat, CGFloat) = (0, 0, 0)
         var panelAlpha: CGFloat = 1
         var panelScale: CGFloat = 1
 
-        // Cursor target inside panel coordinate space
-        var cursor = CGPoint(x: panelCenterX + 80, y: panelTopY - 120)
-        var click = false
+        let togglePt = CGPoint(x: panelCenterX + 185 * panelPresentationScale, y: panelTopY - 82 * panelPresentationScale)
+        let midPt = CGPoint(x: panelCenterX - 55 * panelPresentationScale, y: panelTopY - 344 * panelPresentationScale)
+        let tab1Pt = CGPoint(x: panelCenterX + 68 * panelPresentationScale, y: panelTopY - 22 * panelPresentationScale)
+        let tab2Pt = CGPoint(x: panelCenterX + 162 * panelPresentationScale, y: panelTopY - 22 * panelPresentationScale)
+        let tab0Pt = CGPoint(x: panelCenterX - 10 * panelPresentationScale, y: panelTopY - 22 * panelPresentationScale)
 
-        if t < 0.08 {
-            let p = easeOutExpo(t / 0.08)
+        var cursor = CGPoint(x: ptW / 2, y: ptH - 14)
+        var click = false
+        var ripple: CGFloat = 0
+
+        if t < 0.10 {
+            let p = easeOutCubic(t / 0.10)
             panelAlpha = p
-            panelScale = lerp(0.96, 1.0, p)
-            cursor = CGPoint(x: ptW / 2, y: ptH - 14)
+            panelScale = lerp(0.95, 1.0, p)
+            cursor = CGPoint(x: lerp(ptW / 2, togglePt.x, easeInOutCubic(t / 0.10)), y: lerp(ptH - 14, togglePt.y, easeInOutCubic(t / 0.10)))
+        } else if t < 0.24 {
+            let p = clamp((t - 0.12) / 0.10)
+            toggleProgress = 1.0 - easeInOutCubic(p)
+            cursor = togglePt
+            click = (t >= 0.10 && t <= 0.13)
+            ripple = clamp((t - 0.10) / 0.05)
         } else if t < 0.36 {
-            let p = easeInOutCubic((t - 0.08) / 0.22)
-            toggleOn = t < 0.20
-            midProgress = t > 0.28 ? 1.0 : 0.0
-            cursor = CGPoint(
-                x: lerp(panelCenterX + 165 * panelPresentationScale, panelCenterX - 55 * panelPresentationScale, clamp(p)),
-                y: lerp(panelTopY - 82 * panelPresentationScale, panelTopY - 340 * panelPresentationScale, clamp(p))
-            )
-            click = (t >= 0.18 && t <= 0.22) || (t >= 0.27 && t <= 0.31)
-        } else if t < 0.56 {
-            // Switch Rules -> Exclusions cleanly over ~8 frames
-            let trans = easeOutExpo(clamp((t - 0.38) / 0.08))
-            activeTab = t >= 0.38 ? 1 : 0
-            toggleOn = false
-            midProgress = 1.0
-            h = lerp(427, 392, trans)
-            o1 = Double(clamp(1.0 - trans * 1.4))
-            o2 = Double(clamp((trans - 0.2) / 0.8))
-            cursor = CGPoint(x: panelCenterX + 68 * panelPresentationScale, y: panelTopY - 22 * panelPresentationScale)
-            click = (t >= 0.36 && t <= 0.40)
-        } else if t < 0.78 {
-            // Switch Exclusions -> System cleanly over ~8 frames
-            let trans = easeOutExpo(clamp((t - 0.58) / 0.08))
-            activeTab = t >= 0.58 ? 2 : 1
-            h = lerp(392, 354, trans)
-            o2 = Double(clamp(1.0 - trans * 1.4))
-            o3 = Double(clamp((trans - 0.2) / 0.8))
-            cursor = CGPoint(x: panelCenterX + 162 * panelPresentationScale, y: panelTopY - 22 * panelPresentationScale)
-            click = (t >= 0.56 && t <= 0.60)
+            let moveP = easeInOutCubic(clamp((t - 0.24) / 0.06))
+            cursor = CGPoint(x: lerp(togglePt.x, midPt.x, moveP), y: lerp(togglePt.y, midPt.y, moveP))
+            toggleProgress = 0.0
+            let slideP = easeInOutCubic(clamp((t - 0.30) / 0.06))
+            midPillPos = slideP
+            click = (t >= 0.29 && t <= 0.32)
+            ripple = clamp((t - 0.29) / 0.05)
+        } else if t < 0.54 {
+            targetTab = t >= 0.42 ? 1 : 0
+            toggleProgress = 0.0
+            midPillPos = 1.0
+            let moveP = easeInOutCubic(clamp((t - 0.36) / 0.06))
+            cursor = CGPoint(x: lerp(midPt.x, tab1Pt.x, moveP), y: lerp(midPt.y, tab1Pt.y, moveP))
+            click = (t >= 0.41 && t <= 0.44)
+            ripple = clamp((t - 0.41) / 0.05)
+            let trans = clamp((t - 0.42) / 0.12)
+            let smooth = easeInOutCubic(trans)
+            tabPillPos = lerp(0.0, 1.0, smooth)
+            h = lerp(427, 386, smooth)
+            let tr = nonOverlappingTransition(trans)
+            opacities = (tr.outOpacity, tr.inOpacity, 0)
+            yOffsets = (tr.outY, tr.inY, 0)
+        } else if t < 0.74 {
+            targetTab = t >= 0.60 ? 2 : 1
+            let moveP = easeInOutCubic(clamp((t - 0.54) / 0.06))
+            cursor = CGPoint(x: lerp(tab1Pt.x, tab2Pt.x, moveP), y: lerp(tab1Pt.y, tab2Pt.y, moveP))
+            click = (t >= 0.59 && t <= 0.62)
+            ripple = clamp((t - 0.59) / 0.05)
+            let trans = clamp((t - 0.60) / 0.13)
+            let smooth = easeInOutCubic(trans)
+            tabPillPos = lerp(1.0, 2.0, smooth)
+            h = lerp(386, 346, smooth)
+            let tr = nonOverlappingTransition(trans)
+            opacities = (0, tr.outOpacity, tr.inOpacity)
+            yOffsets = (0, tr.outY, tr.inY)
+        } else if t < 0.94 {
+            targetTab = t >= 0.80 ? 0 : 2
+            toggleProgress = 1.0
+            midPillPos = 0.0
+            let moveP = easeInOutCubic(clamp((t - 0.74) / 0.06))
+            cursor = CGPoint(x: lerp(tab2Pt.x, tab0Pt.x, moveP), y: lerp(tab2Pt.y, tab0Pt.y, moveP))
+            click = (t >= 0.79 && t <= 0.82)
+            ripple = clamp((t - 0.79) / 0.05)
+            let trans = clamp((t - 0.80) / 0.13)
+            let smooth = easeInOutCubic(trans)
+            tabPillPos = lerp(2.0, 0.0, smooth)
+            h = lerp(346, 427, smooth)
+            let tr = nonOverlappingTransition(trans)
+            opacities = (tr.inOpacity, 0, tr.outOpacity)
+            yOffsets = (tr.inY, 0, tr.outY)
         } else {
-            // Switch System -> Rules smoothly over ~8 frames
-            let trans = easeOutExpo(clamp((t - 0.80) / 0.08))
-            activeTab = t >= 0.80 ? 0 : 2
-            toggleOn = true
-            midProgress = 0
-            h = lerp(354, 427, trans)
-            o3 = Double(clamp(1.0 - trans * 1.4))
-            o1 = Double(clamp((trans - 0.2) / 0.8))
-            cursor = CGPoint(x: panelCenterX - 8 * panelPresentationScale, y: panelTopY - 22 * panelPresentationScale)
-            click = (t >= 0.78 && t <= 0.82)
+            targetTab = 0
+            let moveP = easeInOutCubic(clamp((t - 0.94) / 0.06))
+            cursor = CGPoint(x: lerp(tab0Pt.x, ptW / 2, moveP), y: lerp(tab0Pt.y, ptH - 14, moveP))
+            tabPillPos = 0
+            toggleProgress = 1.0
+            midPillPos = 0.0
+            h = 427
+            opacities = (1, 0, 0)
         }
 
         let roundedH = (h * 2).rounded() / 2
-        let stateKey = "\(activeTab)-\(toggleOn)-\(Int(midProgress))-\(Int(roundedH))-\(Int((o1 * 20).rounded()))-\(Int((o2 * 20).rounded()))-\(Int((o3 * 20).rounded()))"
+        let stateKey = String(
+            format: "%d-%.2f-%.2f-%.2f-%.1f-%.2f-%.2f-%.2f",
+            targetTab, tabPillPos, toggleProgress, midPillPos, roundedH, opacities.0, opacities.1, opacities.2
+        )
         let panelImg: CGImage
         if let hit = cachedPanels[stateKey] {
             panelImg = hit
         } else {
             let panelView = UIPanelSnapshotView(
                 lang: lang,
-                activeTab: activeTab,
-                tabPillFraction: CGFloat(activeTab),
-                toggleValue: toggleOn,
-                middleClickProgress: midProgress,
+                targetTab: targetTab,
+                tabPillPosition: tabPillPos,
+                toggleProgress: toggleProgress,
+                midPillPosition: midPillPos,
                 panelHeight: roundedH,
-                tab1ContentOpacity: o1,
-                tab2ContentOpacity: o2,
-                tab3ContentOpacity: o3,
+                activeTabLayerOpacity: opacities,
+                activeTabYOffset: yOffsets,
                 icons: icons
             )
-            let rendered = AssetsStore.renderSwiftUI(panelView, scale: 2.0)
+            let rendered = AssetsStore.renderSwiftUI(panelView, scale: 3.6) // Exact 1:1 4K pixel mapping!
             cachedPanels[stateKey] = rendered
             panelImg = rendered
         }
 
         let drawW = 446 * panelPresentationScale * panelScale
-        let drawH = h * panelPresentationScale * panelScale
-        let drawRect = CGRect(x: panelCenterX - drawW / 2, y: panelTopY - drawH, width: drawW, height: drawH)
+        let drawH = roundedH * panelPresentationScale * panelScale
+        let drawRect = CGRect(
+            x: (panelCenterX - drawW / 2).rounded(),
+            y: (panelTopY - drawH).rounded(),
+            width: drawW,
+            height: drawH
+        )
 
         frameCtx.saveGState()
         frameCtx.setAlpha(panelAlpha)
         frameCtx.draw(panelImg, in: drawRect)
         frameCtx.restoreGState()
 
-        Draw.drawCursor(ctx: frameCtx, at: cursor, clicking: click, rippleProgress: click ? 0.3 : 0)
+        Draw.drawCursor(ctx: frameCtx, at: cursor, clicking: click, rippleProgress: ripple)
 
         frameCtx.restoreGState()
         CGImageDestinationAddImage(dest, frameCtx.makeImage()!, fp)
