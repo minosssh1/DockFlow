@@ -34,11 +34,26 @@ private enum LegacyDefaultsMigrator {
     }
 }
 
+/// Borderless floating panel anchored below the Menu Bar icon, enabling custom M3 Silk Materialize motion.
+private final class FloatingMenuPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     var statusItem: NSStatusItem?
     var dockMonitor: DockMonitor?
     private var permissionAlertShown = false
-    private var settingsWindow: NSWindow?
+    private var floatingPanel: FloatingMenuPanel?
+    private var panelHostingView: NSHostingView<SettingsView>?
+    private let panelFixedCanvasHeight: CGFloat = 540
+    private var cachedTabHeights: [PopoverTab: CGFloat] = [:]
+    private let panelUIState = PopoverUIState(initialTab: .rules, isPanelPresented: false)
+    private var isPanelOpen = false
+    private var panelCloseTask: Task<Void, Never>?
+    private var globalClickMonitor: Any?
+    private var localKeyMonitor: Any?
+    private var isModalSuspended = false
     private var updateWindow: NSWindow?
     private var updateDownloader: UpdateDownloader?
     private var cancellables = Set<AnyCancellable>()
@@ -70,11 +85,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         UNUserNotificationCenter.current().delegate = self
 
         createStatusItem()
+        setupPopover()
 
         LocalizationManager.shared.$currentLanguage
             .sink { [weak self] _ in
                 DispatchQueue.main.async {
-                    self?.updateStatusItemMenu()
+                    self?.updateStatusItemAppearance()
                 }
             }
             .store(in: &cancellables)
@@ -87,7 +103,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         let hasKey = UserDefaults.standard.object(forKey: "showPanelOnLaunch") != nil
         let showPanelOnLaunch = hasKey ? UserDefaults.standard.bool(forKey: "showPanelOnLaunch") : false
         if showPanelOnLaunch {
-            openSettings()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.openPopover()
+            }
         }
 
         // Passive startup update check: never steals user focus with a modal dialog
@@ -104,8 +122,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         updateService.$updateAvailable
             .sink { [weak self] _ in
                 DispatchQueue.main.async {
-                    self?.updateStatusItemMenu()
+                    self?.updateStatusItemAppearance()
                 }
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)
+            .sink { [weak self] _ in
+                guard let self, !self.isModalSuspended, !self.isPointerOverStatusItemButton() else { return }
+                self.closePopover()
             }
             .store(in: &cancellables)
     }
@@ -172,30 +197,138 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
 
         guard let item = self.statusItem, let button = item.button else { return }
 
-        button.title = "▼"
-        button.font = NSFont.systemFont(ofSize: 14)
-        button.toolTip = "DockFlow"
-
-        updateStatusItemMenu()
+        updateStatusItemAppearance()
+        button.target = self
+        button.action = #selector(handleStatusBarClick)
+        button.sendAction(on: [.leftMouseDown, .rightMouseUp])
 
         item.isVisible = true
         button.isHidden = false
     }
 
-    private func updateStatusItemMenu() {
-        guard let item = self.statusItem else { return }
+    private func setupPopover() {
+        let rootView = SettingsView(
+            initialTab: .rules,
+            uiState: panelUIState,
+            fixedCanvasHeight: panelFixedCanvasHeight,
+            onSelectTab: { [weak self] tab in
+                self?.switchPanelTab(tab)
+            },
+            onContentChanged: { [weak self] in
+                self?.refreshCurrentTabHeight(animated: true)
+            },
+            onPickExcludedApp: { [weak self] in
+                self?.pickExcludedAppSafely()
+            },
+            onCheckForUpdates: { [weak self] in
+                self?.checkUpdatesInline()
+            },
+            onInstallUpdate: { [weak self] in
+                self?.closePopover()
+                self?.performAutoUpdate()
+            },
+            onOpenLogs: { [weak self] in
+                self?.closePopover()
+                self?.openLogFolder()
+            },
+            onOpenAccessibilitySettings: { [weak self] in
+                self?.closePopover()
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                    NSWorkspace.shared.open(url)
+                }
+            },
+            onQuit: { [weak self] in
+                self?.quitApp()
+            }
+        )
 
+        let hosting = NSHostingView(rootView: rootView)
+        hosting.safeAreaRegions = []
+        hosting.translatesAutoresizingMaskIntoConstraints = true
+        // Keep hostingView pinned to the top edge with fixed 540pt height so NSWindow resize never triggers mid-animation SwiftUI relayout jumps.
+        hosting.autoresizingMask = [.width, .minYMargin]
+        self.panelHostingView = hosting
+
+        let initialHeight = measureNaturalHeight(for: .rules)
+        panelUIState.targetTotalHeight = initialHeight
+        for tab in PopoverTab.allCases {
+            _ = measureNaturalHeight(for: tab)
+        }
+
+        let panel = FloatingMenuPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 446, height: initialHeight),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "DockFlow"
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovable = false
+        panel.isMovableByWindowBackground = false
+        panel.standardWindowButton(.closeButton)?.isHidden = true
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.isFloatingPanel = true
+        panel.level = .statusBar
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.setAccessibilitySubrole(.dialog)
+
+        let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: panel.frame.size))
+        effect.material = .popover
+        effect.blendingMode = .behindWindow
+        effect.state = .active
+        effect.autoresizingMask = [.width, .height]
+        hosting.frame = NSRect(x: 0, y: effect.bounds.height - panelFixedCanvasHeight, width: 446, height: panelFixedCanvasHeight)
+        effect.addSubview(hosting)
+        panel.contentView = effect
+
+        self.floatingPanel = panel
+    }
+
+    private func updateStatusItemAppearance() {
+        guard let button = statusItem?.button else { return }
+        let symbolName = updateService.updateAvailable ? "dock.arrow.down.rectangle" : "dock.rectangle"
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "DockFlow") {
+            let configured = image.withSymbolConfiguration(.init(pointSize: 13.5, weight: .medium)) ?? image
+            configured.isTemplate = true
+            button.image = configured
+            button.title = ""
+        } else {
+            button.title = "DF"
+        }
+        button.toolTip = updateService.updateAvailable
+            ? "DockFlow (\(L10n.updateAvailable))"
+            : "DockFlow"
+    }
+
+    @objc private func handleStatusBarClick() {
+        guard let event = NSApp.currentEvent else {
+            togglePopover()
+            return
+        }
+
+        if event.type == .rightMouseUp {
+            closePopover()
+            showContextMenu()
+        } else {
+            togglePopover()
+        }
+    }
+
+    private func showContextMenu() {
+        guard let item = statusItem, let button = item.button else { return }
         let menu = NSMenu()
 
-        let settingsItem = NSMenuItem(title: L10n.settings, action: #selector(openSettings), keyEquivalent: "")
+        let settingsItem = NSMenuItem(title: L10n.settings, action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
-
-        let statusMenuItem = NSMenuItem(title: L10n.dockFlowActive, action: nil, keyEquivalent: "")
-        statusMenuItem.isEnabled = false
-        menu.addItem(statusMenuItem)
 
         let quitOnCloseKey = "quitOnCloseButton"
         let isQuitOnClose = UserDefaults.standard.object(forKey: quitOnCloseKey) == nil || UserDefaults.standard.bool(forKey: quitOnCloseKey)
@@ -203,8 +336,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         quitOnCloseItem.target = self
         quitOnCloseItem.state = isQuitOnClose ? .on : .off
         menu.addItem(quitOnCloseItem)
-
-        menu.addItem(NSMenuItem.separator())
 
         let permissionItem = NSMenuItem(title: L10n.checkPermissions, action: #selector(checkPermissionStatus), keyEquivalent: "")
         permissionItem.target = self
@@ -221,9 +352,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
             : L10n.checkForUpdates
         let updateItem = NSMenuItem(title: updateTitle, action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
-        if updateService.updateAvailable {
-            updateItem.state = .on
-        }
         menu.addItem(updateItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -233,13 +361,221 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         menu.addItem(quitItem)
 
         item.menu = menu
+        button.performClick(nil)
+        item.menu = nil
+    }
+
+    private func togglePopover() {
+        if isPanelOpen {
+            closePopover()
+        } else {
+            openPopover()
+        }
+    }
+
+    private func targetPanelFrame(for height: CGFloat, verticalOffset: CGFloat = 0) -> NSRect {
+        let panelWidth: CGFloat = 446
+        let clampedHeight = max(260, height)
+
+        guard let buttonWindow = statusItem?.button?.window else {
+            let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            return NSRect(
+                x: screenFrame.midX - panelWidth / 2.0,
+                y: screenFrame.maxY - clampedHeight - 36 + verticalOffset,
+                width: panelWidth,
+                height: clampedHeight
+            )
+        }
+
+        let buttonFrame = buttonWindow.frame
+        let targetScreen = buttonWindow.screen ?? NSScreen.main
+        var originX = buttonFrame.midX - panelWidth / 2.0
+        if let visible = targetScreen?.visibleFrame {
+            originX = min(max(originX, visible.minX + 10.0), visible.maxX - panelWidth - 10.0)
+        }
+        let topAnchorY = round(buttonFrame.minY - 6.0)
+        let originY = topAnchorY - clampedHeight + verticalOffset
+        return NSRect(x: originX, y: originY, width: panelWidth, height: clampedHeight)
+    }
+
+    private func measureNaturalHeight(for tab: PopoverTab) -> CGFloat {
+        if let cached = cachedTabHeights[tab] {
+            return cached
+        }
+        let measurer = NSHostingView(rootView: SettingsView(initialTab: tab, fixedCanvasHeight: nil))
+        measurer.safeAreaRegions = []
+        measurer.layoutSubtreeIfNeeded()
+        let height = ceil(max(260, measurer.fittingSize.height))
+        cachedTabHeights[tab] = height
+        return height
+    }
+
+    private func switchPanelTab(_ tab: PopoverTab) {
+        guard panelUIState.selectedTab != tab else { return }
+        let nextHeight = measureNaturalHeight(for: tab)
+        let duration: TimeInterval = 0.34
+
+        withAnimation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: duration)) {
+            panelUIState.selectedTab = tab
+            panelUIState.targetTotalHeight = nextHeight
+        }
+        resizeFloatingPanel(to: nextHeight, animated: true, duration: duration)
+    }
+
+    private func refreshCurrentTabHeight(animated: Bool) {
+        cachedTabHeights.removeAll()
+        let nextHeight = measureNaturalHeight(for: panelUIState.selectedTab)
+        if animated {
+            withAnimation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.32)) {
+                panelUIState.targetTotalHeight = nextHeight
+            }
+        } else {
+            panelUIState.targetTotalHeight = nextHeight
+        }
+        resizeFloatingPanel(to: nextHeight, animated: animated, duration: 0.32)
+    }
+
+    private func resizeFloatingPanel(to height: CGFloat, animated: Bool, duration: TimeInterval = 0.34) {
+        guard let panel = floatingPanel, isPanelOpen else { return }
+        let targetFrame = targetPanelFrame(for: height)
+        guard abs(panel.frame.height - targetFrame.height) > 0.5 else { return }
+
+        if animated {
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.floatingPanel else { return }
+                await NSAnimationContext.runAnimationGroup { context in
+                    context.duration = duration
+                    context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
+                    panel.animator().setFrame(targetFrame, display: false)
+                }
+                panel.invalidateShadow()
+            }
+        } else {
+            panel.setFrame(targetFrame, display: false)
+            panel.invalidateShadow()
+        }
+    }
+
+    private func openPopover() {
+        guard let panel = floatingPanel, !isPanelOpen else { return }
+        panelCloseTask?.cancel()
+        panelCloseTask = nil
+        isPanelOpen = true
+
+        LaunchAtLoginManager.shared.refreshStatus()
+        let targetHeight = measureNaturalHeight(for: panelUIState.selectedTab)
+        panelUIState.targetTotalHeight = targetHeight
+        let finalFrame = targetPanelFrame(for: targetHeight, verticalOffset: 0)
+        let startFrame = targetPanelFrame(for: targetHeight, verticalOffset: 7)
+
+        if !panel.isVisible {
+            panelUIState.isPanelPresented = false
+            panel.alphaValue = 0.0
+            panel.setFrame(startFrame, display: false)
+        }
+
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        installEventMonitors()
+
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, self.isPanelOpen, let panel = self.floatingPanel else { return }
+            withAnimation(.timingCurve(0.16, 1.0, 0.3, 1.0, duration: 0.26)) {
+                self.panelUIState.isPanelPresented = true
+            }
+            await NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.26
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+                panel.animator().alphaValue = 1.0
+                panel.animator().setFrame(finalFrame, display: true)
+            }
+            guard self.isPanelOpen else { return }
+            panel.invalidateShadow()
+        }
+    }
+
+    private func closePopover() {
+        guard isPanelOpen else { return }
+        isPanelOpen = false
+        removeEventMonitors()
+
+        if let panel = floatingPanel {
+            let exitFrame = targetPanelFrame(for: panel.frame.height, verticalOffset: 6)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.19
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
+                panel.animator().alphaValue = 0.0
+                panel.animator().setFrame(exitFrame, display: true)
+            }
+        }
+
+        withAnimation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.19)) {
+            panelUIState.isPanelPresented = false
+        }
+
+        panelCloseTask?.cancel()
+        panelCloseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard let self, !Task.isCancelled, !self.isPanelOpen else { return }
+            self.floatingPanel?.orderOut(nil)
+        }
+    }
+
+    private func isPointerOverStatusItemButton() -> Bool {
+        guard let button = statusItem?.button, let buttonWindow = button.window else { return false }
+        return buttonWindow.frame.contains(NSEvent.mouseLocation)
+    }
+
+    private func installEventMonitors() {
+        removeEventMonitors()
+
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            guard let self, !self.isModalSuspended, !self.isPointerOverStatusItemButton() else { return }
+            self.closePopover()
+        }
+
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            if event.keyCode == 53, let self, self.isPanelOpen, !self.isModalSuspended {
+                self.closePopover()
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func removeEventMonitors() {
+        if let globalClickMonitor {
+            NSEvent.removeMonitor(globalClickMonitor)
+            self.globalClickMonitor = nil
+        }
+        if let localKeyMonitor {
+            NSEvent.removeMonitor(localKeyMonitor)
+            self.localKeyMonitor = nil
+        }
+    }
+
+    private func pickExcludedAppSafely() {
+        isModalSuspended = true
+        AppExclusionManager.shared.addAppViaFilePicker()
+        isModalSuspended = false
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        floatingPanel?.makeKeyAndOrderFront(nil)
+    }
+
+    private func checkUpdatesInline() {
+        Task {
+            await updateService.checkForUpdates(force: true)
+            await MainActor.run {
+                self.updateStatusItemAppearance()
+            }
+        }
     }
 
     @objc private func toggleQuitOnClose() {
         let key = "quitOnCloseButton"
         let current = UserDefaults.standard.object(forKey: key) == nil || UserDefaults.standard.bool(forKey: key)
         UserDefaults.standard.set(!current, forKey: key)
-        updateStatusItemMenu()
     }
 
     @objc private func checkPermissionStatus() {
@@ -370,11 +706,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
                         await MainActor.run {
                             viewModel.stageTitle = L10n.updateStageRestarting
                             viewModel.stageDetail = L10n.updateStageRestartingDetail
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                                self?.updateWindow?.close()
-                                self?.updateWindow = nil
-                                self?.updateDownloader = nil
-                                self?.updateService.applyUpdateAndRestart(dmgPath: stagedDMG.path)
+                            Task { @MainActor [weak self] in
+                                try? await Task.sleep(nanoseconds: 400_000_000)
+                                guard let self else { return }
+                                downloader.releaseStagingDirectoryForInstall()
+                                do {
+                                    try self.updateService.applyUpdateAndRestart(dmgPath: stagedDMG.path)
+                                    self.updateWindow?.close()
+                                    self.updateWindow = nil
+                                    self.updateDownloader = nil
+                                } catch {
+                                    try? FileManager.default.removeItem(at: stagedDMG.deletingLastPathComponent())
+                                    viewModel.isFailed = true
+                                    viewModel.stageTitle = L10n.updateStageFailed
+                                    viewModel.stageDetail = error.localizedDescription
+                                }
                             }
                         }
                     } catch {
@@ -432,36 +778,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     }
 
     @objc private func openSettings() {
-        NSApplication.shared.activate(ignoringOtherApps: true)
-
-        if let window = settingsWindow {
-            window.makeKeyAndOrderFront(nil)
-            return
-        }
-
-        let screenVisibleHeight = NSScreen.main?.visibleFrame.height ?? 760
-        let targetHeight = min(740, max(520, screenVisibleHeight - 40))
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: targetHeight),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = L10n.settingsWindowTitle
-        window.minSize = NSSize(width: 460, height: 500)
-        window.maxSize = NSSize(width: 460, height: 820)
-        window.center()
-        window.contentView = NSHostingView(rootView: SettingsView(onClose: { [weak window] in
-            window?.close()
-        }))
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.makeKeyAndOrderFront(nil)
-        settingsWindow = window
+        openPopover()
     }
 
     @objc private func quitApp() {
+        closePopover()
         NSApplication.shared.terminate(nil)
     }
 
@@ -490,51 +811,38 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
 
-        let win1 = NSWindow(
-            contentRect: NSRect(x: 200, y: 150, width: 460, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        win1.title = L10n.settingsWindowTitle
-        let host1 = NSHostingView(rootView: SettingsView())
-        win1.contentView = host1
-        win1.makeKeyAndOrderFront(nil)
+        let shots: [(PopoverTab, String)] = [
+            (.rules, "popover_rules.png"),
+            (.exclusions, "popover_exclusions.png"),
+            (.system, "popover_system.png")
+        ]
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
-        host1.layoutSubtreeIfNeeded()
+        for (tab, filename) in shots {
+            let win = NSWindow(
+                contentRect: NSRect(x: 200, y: 150, width: 446, height: 420),
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            win.backgroundColor = .clear
+            win.isOpaque = false
+            let host = NSHostingView(rootView: SettingsView(initialTab: tab))
+            win.contentView = host
+            win.setContentSize(host.fittingSize)
+            win.makeKeyAndOrderFront(nil)
 
-        if let frameView = win1.contentView?.superview,
-           let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) {
-            frameView.cacheDisplay(in: frameView.bounds, to: rep)
-            if let data = rep.representation(using: .png, properties: [:]) {
-                try? data.write(to: URL(fileURLWithPath: "\(outputDir)/settings_main.png"))
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+            host.layoutSubtreeIfNeeded()
+            win.setContentSize(host.fittingSize)
+
+            if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                host.cacheDisplay(in: host.bounds, to: rep)
+                if let data = rep.representation(using: .png, properties: [:]) {
+                    try? data.write(to: URL(fileURLWithPath: "\(outputDir)/\(filename)"))
+                }
             }
+            win.close()
         }
-        win1.close()
-
-        let win2 = NSWindow(
-            contentRect: NSRect(x: 200, y: 150, width: 480, height: 460),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        win2.title = L10n.exclusionsWindowTitle
-        let host2 = NSHostingView(rootView: ExclusionsSheetView())
-        win2.contentView = host2
-        win2.makeKeyAndOrderFront(nil)
-
-        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
-        host2.layoutSubtreeIfNeeded()
-
-        if let frameView = win2.contentView?.superview,
-           let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) {
-            frameView.cacheDisplay(in: frameView.bounds, to: rep)
-            if let data = rep.representation(using: .png, properties: [:]) {
-                try? data.write(to: URL(fileURLWithPath: "\(outputDir)/settings_exclusions.png"))
-            }
-        }
-        win2.close()
 
         exit(0)
     }

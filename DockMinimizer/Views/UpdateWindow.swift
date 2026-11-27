@@ -15,81 +15,143 @@ final class UpdateProgressViewModel: ObservableObject {
 }
 
 struct UpdateProgressView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var lm = LocalizationManager.shared
     @ObservedObject var viewModel: UpdateProgressViewModel
     let targetVersion: String
 
+    private var isDark: Bool { colorScheme == .dark }
+    private var bgSurface: Color {
+        isDark ? Color(red: 20/255, green: 22/255, blue: 25/255) : Color(red: 248/255, green: 248/255, blue: 250/255)
+    }
+    private var wellSurface: Color {
+        isDark ? Color(red: 27/255, green: 30/255, blue: 35/255) : Color.white
+    }
+    private var wellBorder: Color {
+        isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.08)
+    }
+    private var primaryFill: Color {
+        isDark ? Color(white: 0.94) : Color(white: 0.10)
+    }
+    private var primaryText: Color {
+        isDark ? Color(white: 0.06) : Color.white
+    }
+
     var body: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 14) {
-                if let icon = NSImage(named: "AppIcon") {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 48, height: 48)
-                } else {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(.accentColor)
+        VStack(spacing: 14) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(wellSurface)
+                        .frame(width: 44, height: 44)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(wellBorder, lineWidth: 1)
+                        )
+                    if let icon = NSImage(named: "AppIcon") {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .frame(width: 34, height: 34)
+                            .cornerRadius(7)
+                    } else {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.primary)
+                    }
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(L10n.updateWindowHeader(version: targetVersion))
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.custom("Avenir Next", size: 14).weight(.semibold))
                     Text(viewModel.stageTitle)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(viewModel.isFailed ? .red : .primary)
+                        .font(.custom("Avenir Next", size: 12))
+                        .foregroundColor(viewModel.isFailed ? Color(red: 220/255, green: 90/255, blue: 90/255) : .secondary)
                 }
 
                 Spacer()
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 if viewModel.isIndeterminate {
                     ProgressView()
                         .progressViewStyle(.linear)
+                        .tint(isDark ? Color(white: 0.88) : Color(white: 0.16))
                 } else {
                     ProgressView(value: viewModel.progress, total: 1.0)
                         .progressViewStyle(.linear)
+                        .tint(isDark ? Color(white: 0.88) : Color(white: 0.16))
                 }
 
                 HStack {
                     Text(viewModel.stageDetail)
-                        .font(.system(size: 11))
-                        .foregroundColor(viewModel.isFailed ? .red : .secondary)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(viewModel.isFailed ? Color(red: 220/255, green: 90/255, blue: 90/255) : .secondary)
                     Spacer()
                     if !viewModel.isIndeterminate && !viewModel.isFailed {
                         Text("\(Int(viewModel.progress * 100))%")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
                 }
             }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(wellSurface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(wellBorder, lineWidth: 1)
+            )
 
-            Divider()
-
-            HStack {
+            HStack(spacing: 8) {
                 if viewModel.isFailed {
                     Button(L10n.updateDownloadManually) {
                         viewModel.onManualDownload?()
                     }
+                    .buttonStyle(.plain)
+                    .font(.custom("Avenir Next", size: 12))
+                    .foregroundColor(.secondary)
+
                     Spacer()
+
                     Button(L10n.updateRetry) {
                         viewModel.onRetry?()
                     }
+                    .buttonStyle(.plain)
+                    .font(.custom("Avenir Next", size: 12).weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(primaryFill))
+                    .foregroundColor(primaryText)
+
                     Button(L10n.close) {
                         viewModel.onCancel?()
                     }
+                    .buttonStyle(.plain)
+                    .font(.custom("Avenir Next", size: 12))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(wellSurface))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(wellBorder, lineWidth: 1))
                 } else {
                     Spacer()
                     Button(L10n.updateCancel) {
                         viewModel.onCancel?()
                     }
+                    .buttonStyle(.plain)
+                    .font(.custom("Avenir Next", size: 12).weight(.medium))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(wellSurface))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(wellBorder, lineWidth: 1))
                     .keyboardShortcut(.cancelAction)
                 }
             }
         }
-        .padding(20)
+        .padding(18)
         .frame(width: 420)
+        .background(bgSurface)
     }
 }
 
@@ -133,6 +195,14 @@ final class UpdateDownloader: NSObject, URLSessionDownloadDelegate {
             try? FileManager.default.removeItem(at: dir)
             stageDirectory = nil
         }
+    }
+
+    /// Transfers ownership of the private staging directory to `UpdateService.applyUpdateAndRestart`
+    /// so `windowWillClose` and `deinit` do not delete the downloaded DMG before installation starts.
+    func releaseStagingDirectoryForInstall() {
+        downloadTask = nil
+        session = nil
+        stageDirectory = nil
     }
 
     func urlSession(

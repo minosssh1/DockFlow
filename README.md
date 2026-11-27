@@ -1,82 +1,108 @@
+<div align="center">
+
 # 🌊 DockFlow for macOS
 
-> **Плавное управление Доком, умное закрытие окон (⌘Q) и новые жесты в стиле macOS.**  
-> *Эффект Джинна по клику на Док, завершение по красному крестику с сохранением сессий, клик колёсиком мыши, список исключений и тактильный отклик.*
+**Плавное управление Доком, умное закрытие окон (`⌘Q`) и живой интерфейс в стиле матового стекла.**
+
+<br/>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/macOS-14.0%2B%20%7C%2027.0%2B-blue?style=for-the-badge&logo=apple" alt="macOS" />
-  <img src="https://img.shields.io/badge/Architecture-Apple%20Silicon%20(arm64)-orange?style=for-the-badge" alt="Architecture" />
-  <img src="https://img.shields.io/badge/CPU%20Usage-0.0%25%20Idle-brightgreen?style=for-the-badge" alt="CPU Usage" />
-  <img src="https://img.shields.io/badge/Swift-6.4-F05138?style=for-the-badge&logo=swift" alt="Swift" />
-  <img src="https://img.shields.io/badge/Vibecoded%20with-Antigravity-8A2BE2?style=for-the-badge&logo=google" alt="Vibecoded with Antigravity" />
-  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License" />
+  <img src="https://img.shields.io/badge/Release-v2.2.0-ECECEC?style=for-the-badge&labelColor=1F1522" alt="Release v2.2.0" />
+  <img src="https://img.shields.io/badge/macOS-14.0%2B-ECECEC?style=for-the-badge&logo=apple&logoColor=white&labelColor=1F1522" alt="macOS 14.0+" />
+  <img src="https://img.shields.io/badge/Apple_Silicon-arm64-ECECEC?style=for-the-badge&labelColor=1F1522" alt="Apple Silicon" />
+  <img src="https://img.shields.io/badge/CPU_Idle-0.0%25-4ADE80?style=for-the-badge&labelColor=1F1522" alt="0.0% Idle CPU" />
+  <img src="https://img.shields.io/badge/Swift-Native-F05138?style=for-the-badge&logo=swift&logoColor=white&labelColor=1F1522" alt="Swift" />
+  <img src="https://img.shields.io/badge/License-MIT-ECECEC?style=for-the-badge&labelColor=1F1522" alt="MIT License" />
 </p>
 
-> 🔱 **О проекте, авторстве и вайбкоде:**  
-> **DockFlow** — глубоко переработанный форк проекта **[DockMinimizer](https://github.com/JackTonyMa/DockMinimizer)** разработчика *JackTonyMa*.  
-> Проект создан и поддерживается **[@minosssh1](https://github.com/minosssh1)** с помощью **вайбкодинга (vibecoding)** в тандеме с AI-ассистентом **Antigravity** (Google DeepMind).  
-> В форке полностью переосмыслено поведение окон, добавлены аппаратная анимация Джинна, модуль автозавершения через CoreGraphics, список исключений, поддержка клика колёсиком (Middle Click), тактильная отдача (Haptic Feedback), нулевое потребление ЦП (0.0%), сохранение сессий браузеров и интерфейс в стиле macOS 27.
+<p align="center">
+  <b>🇷🇺 Русский</b> &nbsp;&nbsp;·&nbsp;&nbsp; <a href="README_en.md"><b>🇺🇸 English</b></a>
+</p>
+
+<br/>
+
+<img src="assets/screenshots/showcase_ru.png" width="880" alt="DockFlow v2.2.0 — Правила, Исключения и Система" />
+
+</div>
+
+<br/>
+
+> 🔱 **О проекте и авторстве:**  
+> **DockFlow** — глубоко переработанный форк **[DockMinimizer](https://github.com/JackTonyMa/DockMinimizer)** от *JackTonyMa*.  
+> Создан и развивается **[@minosssh1](https://github.com/minosssh1)** совместно с **Antigravity** (Google DeepMind): нативное управление окнами без фоновой нагрузки на процессор (`0.0% CPU`), аппаратный эффект Джинна, умное завершение процессов с сохранением вкладок, белый список исключений и полупрозрачный интерфейс в духе macOS.
 
 ---
 
+### ✨ В действии (`4K`)
+
+<div align="center">
+
+#### 1. Живой интерфейс и плавные переходы
+*Полупрозрачное стекло под цвет обоев, плавная смена высоты вкладок и приятный отклик элементов*
+<br/><br/>
+<img src="assets/demo_ui_flow_ru.gif" width="860" alt="DockFlow v2.2.0 — Живой интерфейс и плавные переходы" />
+
+<br/><br/>
+
+#### 2. Эффект Джинна в Доке
+*Повторный клик по активному приложению в Доке плавно сворачивает и разворачивает окно*
+<br/><br/>
+<img src="assets/demo_dock_minimize_ru.gif" width="860" alt="DockFlow — Эффект Джинна в Доке" />
+
+<br/><br/>
+
+#### 3. Полное закрытие (`⌘Q`) и исключения
+*Красный крестик завершает программу целиком с сохранением вкладок, а мессенджеры и плееры продолжают работать в фоне*
+<br/><br/>
+<img src="assets/demo_quit_on_close_ru.gif" width="860" alt="DockFlow — Закрытие по крестику и исключения" />
+
+</div>
+
+<details>
+<summary><b>📸 Скриншоты всех вкладок по отдельности (нажмите, чтобы открыть)</b></summary>
+<br/>
 <p align="center">
-  <b>🇷🇺 Русский</b> &nbsp;&nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp;&nbsp; <a href="README_en.md"><b>🇺🇸 English</b></a>
+  <img src="assets/screenshots/tab_rules_ru.png" width="280" alt="DockFlow — Правила" />
+  &nbsp;
+  <img src="assets/screenshots/tab_exclusions_ru.png" width="280" alt="DockFlow — Исключения" />
+  &nbsp;
+  <img src="assets/screenshots/tab_system_ru.png" width="280" alt="DockFlow — Система" />
 </p>
+</details>
 
 ---
 
-<p align="center">
-  <img src="assets/demo_dock_minimize_ru.gif" width="720" alt="DockFlow Сворачивание и разворачивание" />
-</p>
+### 📌 Зачем нужен DockFlow?
 
-<p align="center">
-  <img src="assets/demo_quit_on_close_ru.gif" width="720" alt="DockFlow Закрытие по крестику" />
-</p>
+В macOS работа с окнами часто требует лишних действий — особенно если вы привыкли к логике Windows или хотите меньше рутины:
 
-<p align="center">
-  <details>
-    <summary><b>📸 Скриншоты окна настроек и исключений (Нажмите, чтобы развернуть)</b></summary>
-    <br/>
-    <p align="center">
-      <img src="assets/screenshots/settings_main.png" width="380" alt="DockFlow Настройки" />
-      &nbsp;&nbsp;&nbsp;&nbsp;
-      <img src="assets/screenshots/settings_exclusions.png" width="400" alt="DockFlow Исключения закрытия" />
-    </p>
-  </details>
-</p>
-
-### 📌 Почему DockFlow?
-
-В стандартной macOS есть привычные особенности оконного менеджера, к которым сложно привыкнуть (особенно после Windows):
-1. **Клик по Доку не сворачивает окно:** Если приложение уже активно, повторный клик по его иконке в Доке ничего не делает.
-2. **Красный крестик не закрывает программу:** Нажатие на крестик лишь закрывает окно, оставляя фоновый процесс висеть в памяти и в Доке с точкой, требуя постоянного нажатия `⌘ + Q`.
-3. **Мессенджеры и плееры:** При закрытии окна часто хочется закрыть браузер насовсем, но оставить Telegram или Музыку в фоне.
-
-**DockFlow** элегантно и бесшовно решает эти задачи на системном уровне, не расходуя батарею (**0.0% CPU в режиме ожидания**).
+1. **Клик по иконке в Доке не сворачивает окно:** если программа уже на переднем плане, повторный клик по ней ничего не делает.
+2. **Красный крестик не закрывает приложение:** окно исчезает, но процесс и точка под иконкой остаются в памяти до явного `⌘ + Q`.
+3. **Исключения для фоновых программ:** браузеры и редакторы удобно закрывать полностью, но `Telegram`, `Discord`, `Spotify` или `Музыка` должны спокойно оставаться в фоне.
 
 ---
 
-### 🚀 Возможности DockFlow
+### 🚀 Возможности v2.2.0
 
 | Возможность | Описание |
 |---|---|
-| 🪄 **Эффект Джинна (Genie)** | Повторный клик по активному приложению в Доке плавно сворачивает его с анимацией Джинна, следующий клик — разворачивает. |
-| ❌ **Закрытие по крестику (⌘Q)** | Нажатие на красный крестик последнего окна завершает приложение целиком, как по `Command + Q`. |
-| 🛡️ **Список исключений** | Telegram, Discord, Spotify, Музыка или любые выбранные вами приложения остаются работать в фоне. |
-| 🖱️ **Клик колёсиком (Middle Click)** | Нажатие средней кнопкой мыши по Доку открывает **новое окно (⌘N)**, завершает (⌘Q) или скрывает приложение. |
-| 📳 **Тактильный отклик (Haptic)** | Физический виброотклик трекпада Force Touch / Magic Trackpad при сворачивании и закрытии окон. |
-| 🌐 **Мультиязычность** | Полная локализация интерфейса: Русский, English, 简体中文 (Китайский) и Українська. |
-| 🔋 **0.0% CPU в фоне** | Полностью реактивная архитектура без постоянных таймеров — нулевой расход батареи и полная поддержка App Nap. |
-| 💾 **Сохранение вкладок** | Браузеры (Safari, Chrome и др.) сохраняют открытые вкладки и сессии при закрытии по крестику. |
-| 🔄 **OTA автообновление** | Встроенное обновление приложения прямо из менюбара с отображением прогресса в реальном времени. |
+| 🪟 **Живое матовое стекло** | Полупрозрачная панель из строки меню мягко подстраивается под цвета обоев и окон позади, с плавным появлением и изменением высоты между вкладками. |
+| 🪄 **Эффект Джинна в Доке** | Клик по активному приложению в Доке сворачивает окно с анимацией, следующий клик — возвращает обратно. |
+| ❌ **Закрытие по крестику (`⌘Q`)** | При закрытии последнего окна программа завершается полностью, освобождая память. |
+| 🛡️ **Список исключений** | Быстрое добавление в 1 клик (`Telegram`, `Discord`, `Spotify`, `Музыка`) или выбор любых приложений с диска. |
+| 🖱️ **Клик колёсиком по Доку** | Настраиваемое действие на среднюю кнопку мыши: **Новое окно (`⌘N`)**, **Закрыть (`⌘Q`)**, **Скрыть (`⌘H`)** или **Выкл**. |
+| 📳 **Тактильный отклик (Haptic)** | Мягкий виброотклик трекпада Force Touch при сворачивании и закрытии окон. |
+| 💾 **Сохранение сессий** | Браузеры (`Safari`, `Chrome` и др.) корректно запоминают открытые вкладки перед выходом. |
+| 🔄 **Автообновление в приложении** | Проверка новых релизов на GitHub с автоматической проверкой контрольной суммы `SHA-256`. |
+| 🌐 **4 языка и 0.0% CPU** | Русский, English, 简体中文, Українська. Событийная архитектура без фоновых опросов не тратит заряд батареи. |
 
 ---
 
 ### 📦 Установка
 
-1. Скачайте **`DockFlow-Installer.dmg`** из раздела [Releases](https://github.com/minosssh1/DockFlow/releases).
-2. Откройте образ и перетащите **DockFlow** в папку **Applications**.
-3. Запустите приложение.
+1. Скачайте **`DockFlow-Installer.dmg`** в разделе [Releases](https://github.com/minosssh1/DockFlow/releases).
+2. Откройте образ и перетащите **DockFlow** в папку **Программы (Applications)**.
+3. Запустите приложение — иконка появится в верхней строке меню.
 4. При первом запуске выдайте разрешение в:  
    `Системные настройки → Конфиденциальность и безопасность → Универсальный доступ`.
 
@@ -84,7 +110,6 @@
 
 ### 📄 Лицензия и благодарности
 
-- **Оригинальный проект:** Copyright © 2025 **[JackTonyMa](https://github.com/JackTonyMa)** (DockMinimizer).
-- **Форк DockFlow и новые возможности:** Copyright © 2026 **[minosssh1](https://github.com/minosssh1)**.
-- **Разработка & Вайбкодинг:** Создано совместно с **Antigravity** (Google DeepMind).
-- Распространяется под свободной лицензией **MIT License**.
+- **Оригинальный проект:** Copyright © 2025 **[JackTonyMa](https://github.com/JackTonyMa)** (*DockMinimizer*).
+- **DockFlow:** Copyright © 2026 **[minosssh1](https://github.com/minosssh1)** · Разработано совместно с **Antigravity** (Google DeepMind).
+- Лицензия: **MIT License**.

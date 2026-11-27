@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -7,682 +8,1254 @@ enum Language {
     case en
 }
 
-// MARK: - Helper Math
+// MARK: - Math & Easing Helpers
+
+func clamp(_ v: CGFloat, _ lo: CGFloat = 0, _ hi: CGFloat = 1) -> CGFloat {
+    min(max(v, lo), hi)
+}
+
 func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat {
-    return a + (b - a) * t
+    a + (b - a) * t
 }
 
 func easeInOutCubic(_ t: CGFloat) -> CGFloat {
-    return t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2
+    let x = clamp(t)
+    return x < 0.5 ? 4 * x * x * x : 1 - pow(-2 * x + 2, 3) / 2
+}
+
+func easeOutCubic(_ t: CGFloat) -> CGFloat {
+    let x = clamp(t)
+    return 1 - pow(1 - x, 3)
+}
+
+func easeOutExpo(_ t: CGFloat) -> CGFloat {
+    let x = clamp(t)
+    return x >= 1 ? 1 : 1 - pow(2, -10 * x)
 }
 
 func easeOutBack(_ t: CGFloat) -> CGFloat {
+    let x = clamp(t)
     let c1: CGFloat = 1.70158
     let c3 = c1 + 1
-    return 1 + c3 * pow(t - 1, 3) + c1 * pow(t - 1, 2)
+    return 1 + c3 * pow(x - 1, 3) + c1 * pow(x - 1, 2)
 }
 
-// MARK: - Drawing Utilities
-struct DrawUtils {
-    static func drawBackground(ctx: CGContext, rect: CGRect) {
-        let colors = [
-            NSColor(red: 0.08, green: 0.09, blue: 0.13, alpha: 1.0).cgColor,
-            NSColor(red: 0.04, green: 0.05, blue: 0.07, alpha: 1.0).cgColor
-        ] as CFArray
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: [0.0, 1.0])!
-        ctx.drawLinearGradient(gradient, start: CGPoint(x: rect.midX, y: rect.maxY), end: CGPoint(x: rect.midX, y: rect.minY), options: [])
+func springPop(_ t: CGFloat) -> CGFloat {
+    let x = clamp(t)
+    if x == 0 || x == 1 { return x }
+    return 1 - exp(-7.5 * x) * cos(x * 11.0)
+}
 
-        let spotColors = [
-            NSColor(red: 0.25, green: 0.35, blue: 0.70, alpha: 0.22).cgColor,
-            NSColor(red: 0.15, green: 0.20, blue: 0.40, alpha: 0.0).cgColor
-        ] as CFArray
-        let spotGradient = CGGradient(colorsSpace: colorSpace, colors: spotColors, locations: [0.0, 1.0])!
-        ctx.drawRadialGradient(spotGradient, startCenter: CGPoint(x: rect.midX, y: rect.midY + 50), startRadius: 0, endCenter: CGPoint(x: rect.midX, y: rect.midY + 50), endRadius: 380, options: [])
+// MARK: - Shared 8-bit sRGB Helpers & Real App Icons
+
+@MainActor
+enum AssetsStore {
+    static var cachedIcons: [String: CGImage] = [:]
+
+    static func srgbImage(width: Int, height: Int, draw: (CGContext) -> Void) -> CGImage {
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: cs,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        draw(ctx)
+        return ctx.makeImage()!
     }
 
-    static func drawText(ctx: CGContext, text: String, point: CGPoint, font: NSFont, color: NSColor, alignCenter: Bool = false) {
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: color
-        ]
-        let str = NSAttributedString(string: text, attributes: attrs)
-        let size = str.size()
-        let drawPoint = alignCenter ? CGPoint(x: point.x - size.width / 2, y: point.y - size.height / 2) : point
-        str.draw(at: drawPoint)
+    static func appIcon(key: String, paths: [String]) -> CGImage? {
+        if let hit = cachedIcons[key] { return hit }
+        for p in paths where FileManager.default.fileExists(atPath: p) {
+            let icon = NSWorkspace.shared.icon(forFile: p)
+            let img = srgbImage(width: 128, height: 128) { ctx in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+                icon.draw(in: NSRect(x: 0, y: 0, width: 128, height: 128), from: .zero, operation: .sourceOver, fraction: 1.0)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            cachedIcons[key] = img
+            return img
+        }
+        return nil
     }
 
-    static func drawHeader(ctx: CGContext, width: CGFloat, topY: CGFloat, title: String, subtitle: String) {
-        let iconRect = CGRect(x: width / 2 - 15, y: topY - 14, width: 30, height: 30)
-        let iconPath = CGPath(roundedRect: iconRect, cornerWidth: 7.5, cornerHeight: 7.5, transform: nil)
+    static func renderSwiftUI<V: View>(_ view: V, scale: CGFloat) -> CGImage {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = scale
+        renderer.proposedSize = .unspecified
+        let raw = renderer.cgImage!
+        return srgbImage(width: raw.width, height: raw.height) { ctx in
+            ctx.draw(raw, in: CGRect(x: 0, y: 0, width: raw.width, height: raw.height))
+        }
+    }
+}
+
+// MARK: - CoreGraphics Drawing Primitives (3x Retina -> 3840x2160 4K)
+
+struct Palette {
+    static let bgTop = NSColor(red: 0.14, green: 0.05, blue: 0.14, alpha: 1)
+    static let bgBot = NSColor(red: 0.05, green: 0.04, blue: 0.08, alpha: 1)
+    static let glassFill = NSColor(red: 0.25, green: 0.12, blue: 0.23, alpha: 0.72)
+    static let glassDark = NSColor(red: 0.09, green: 0.07, blue: 0.12, alpha: 0.78)
+    static let wellFill = NSColor(white: 1.0, alpha: 0.085)
+    static let border = NSColor(white: 1.0, alpha: 0.16)
+    static let activePill = NSColor(white: 0.94, alpha: 1.0)
+    static let activeText = NSColor(white: 0.06, alpha: 1.0)
+    static let primaryText = NSColor(white: 0.95, alpha: 1.0)
+    static let secondaryText = NSColor(white: 1.0, alpha: 0.62)
+    static let greenDot = NSColor(red: 74 / 255, green: 222 / 255, blue: 128 / 255, alpha: 0.92)
+    static let coralDot = NSColor(red: 1.0, green: 0.42, blue: 0.44, alpha: 0.95)
+}
+
+@MainActor
+enum Draw {
+    static func drawFrostedBackground(ctx: CGContext, width: CGFloat, height: CGFloat) {
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        // Clean deep obsidian-graphite base so GIF palette retains full RGB fidelity for icons & UI
+        let baseGrad = CGGradient(
+            colorsSpace: cs,
+            colors: [
+                NSColor(red: 0.11, green: 0.06, blue: 0.12, alpha: 1).cgColor,
+                NSColor(red: 0.07, green: 0.05, blue: 0.09, alpha: 1).cgColor,
+                NSColor(red: 0.04, green: 0.04, blue: 0.06, alpha: 1).cgColor
+            ] as CFArray,
+            locations: [0.0, 0.55, 1.0]
+        )!
+        ctx.drawLinearGradient(baseGrad, start: CGPoint(x: 0, y: height), end: CGPoint(x: width, y: 0), options: [])
+
+        // Gentle soft rose/plum ambient glow (startRadius 0 avoids un-drawn center circle)
+        let rose = CGGradient(
+            colorsSpace: cs,
+            colors: [
+                NSColor(red: 0.78, green: 0.22, blue: 0.52, alpha: 0.24).cgColor,
+                NSColor(red: 0.55, green: 0.16, blue: 0.40, alpha: 0.08).cgColor,
+                NSColor(red: 0.55, green: 0.16, blue: 0.40, alpha: 0.0).cgColor
+            ] as CFArray,
+            locations: [0.0, 0.55, 1.0]
+        )!
+        ctx.drawRadialGradient(rose, startCenter: CGPoint(x: width * 0.18, y: height * 0.80), startRadius: 0, endCenter: CGPoint(x: width * 0.18, y: height * 0.80), endRadius: width * 0.55, options: [.drawsAfterEndLocation])
+
+        let indigo = CGGradient(
+            colorsSpace: cs,
+            colors: [
+                NSColor(red: 0.32, green: 0.22, blue: 0.56, alpha: 0.20).cgColor,
+                NSColor(red: 0.20, green: 0.14, blue: 0.36, alpha: 0.0).cgColor
+            ] as CFArray,
+            locations: [0.0, 1.0]
+        )!
+        ctx.drawRadialGradient(indigo, startCenter: CGPoint(x: width * 0.84, y: height * 0.20), startRadius: 0, endCenter: CGPoint(x: width * 0.84, y: height * 0.20), endRadius: width * 0.50, options: [.drawsAfterEndLocation])
+    }
+
+    static func drawText(ctx: CGContext, _ text: String, at point: CGPoint, size: CGFloat, weight: NSFont.Weight = .regular, color: NSColor = Palette.primaryText, mono: Bool = false, centerX: Bool = false, centerY: Bool = false) {
+        let font = mono
+            ? NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+            : (NSFont(name: "Avenir Next", size: size).flatMap { NSFontManager.shared.convert($0, toHaveTrait: weight >= .semibold ? .boldFontMask : []) } ?? NSFont.systemFont(ofSize: size, weight: weight))
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let astr = NSAttributedString(string: text, attributes: attrs)
+        let sz = astr.size()
+        let x = centerX ? point.x - sz.width / 2 : point.x
+        let y = centerY ? point.y - sz.height / 2 : point.y
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+        astr.draw(at: CGPoint(x: x, y: y))
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    static func drawHeader(ctx: CGContext, width: CGFloat, topY: CGFloat, subtitle: String, pill: String) {
+        // Brand pill + title aligned cleanly with DockFlow v2.2.0
+        drawText(ctx: ctx, "DockFlow", at: CGPoint(x: width / 2 - 42, y: topY - 26), size: 28, weight: .bold, color: Palette.primaryText, centerX: true, centerY: true)
+
+        let vRect = CGRect(x: width / 2 + 28, y: topY - 38, width: 68, height: 24)
+        let vPath = CGPath(roundedRect: vRect, cornerWidth: 12, cornerHeight: 12, transform: nil)
         ctx.saveGState()
-        ctx.addPath(iconPath)
-        ctx.clip()
-        let iconColors = [
-            NSColor(red: 0.25, green: 0.55, blue: 1.0, alpha: 1.0).cgColor,
-            NSColor(red: 0.65, green: 0.35, blue: 0.95, alpha: 1.0).cgColor
-        ] as CFArray
-        let iconGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: iconColors, locations: [0, 1])!
-        ctx.drawLinearGradient(iconGrad, start: CGPoint(x: iconRect.minX, y: iconRect.maxY), end: CGPoint(x: iconRect.maxX, y: iconRect.minY), options: [])
+        ctx.setFillColor(Palette.activePill.cgColor)
+        ctx.addPath(vPath)
+        ctx.fillPath()
         ctx.restoreGState()
+        drawText(ctx: ctx, "v2.2.0", at: CGPoint(x: vRect.midX, y: vRect.midY), size: 12, weight: .bold, color: Palette.activeText, mono: true, centerX: true, centerY: true)
 
-        ctx.saveGState()
-        let miniWin = CGRect(x: iconRect.minX + 7, y: iconRect.minY + 8, width: 16, height: 13)
-        let miniPath = CGPath(roundedRect: miniWin, cornerWidth: 2.5, cornerHeight: 2.5, transform: nil)
-        ctx.setStrokeColor(NSColor.white.cgColor)
-        ctx.setLineWidth(1.8)
-        ctx.addPath(miniPath)
-        ctx.strokePath()
-        ctx.restoreGState()
-
-        drawText(ctx: ctx, text: title, point: CGPoint(x: width / 2, y: topY - 33), font: NSFont.systemFont(ofSize: 20, weight: .bold), color: .white, alignCenter: true)
-        drawText(ctx: ctx, text: subtitle, point: CGPoint(x: width / 2, y: topY - 50), font: NSFont.systemFont(ofSize: 12.5, weight: .medium), color: NSColor(white: 0.72, alpha: 1.0), alignCenter: true)
+        drawText(ctx: ctx, subtitle, at: CGPoint(x: width / 2, y: topY - 60), size: 15, weight: .medium, color: Palette.secondaryText, centerX: true, centerY: true)
     }
 
-    static func drawWindow(ctx: CGContext, rect: CGRect, title: String, scale: CGFloat = 1.0, alpha: CGFloat = 1.0, hoverClose: Bool = false) {
-        guard alpha > 0.01 && scale > 0.05 else { return }
+    static func drawGlassCard(ctx: CGContext, rect: CGRect, cornerRadius: CGFloat = 20, highlightStroke: NSColor = Palette.border) {
+        let path = CGPath(roundedRect: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
         ctx.saveGState()
-        
-        let midX = rect.midX
-        let midY = rect.midY
-        ctx.translateBy(x: midX, y: midY)
-        ctx.scaleBy(x: scale, y: scale)
-        ctx.translateBy(x: -midX, y: -midY)
-        ctx.setAlpha(alpha)
-
-        // Drop shadow
-        ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 24, color: NSColor(white: 0, alpha: 0.55).cgColor)
-        let winPath = CGPath(roundedRect: rect, cornerWidth: 10, cornerHeight: 10, transform: nil)
-        ctx.setFillColor(NSColor(red: 0.13, green: 0.14, blue: 0.18, alpha: 0.98).cgColor)
-        ctx.addPath(winPath)
+        ctx.setShadow(offset: CGSize(width: 0, height: -10), blur: 32, color: NSColor(white: 0, alpha: 0.45).cgColor)
+        ctx.setFillColor(Palette.glassFill.cgColor)
+        ctx.addPath(path)
         ctx.fillPath()
         ctx.restoreGState()
 
-        // Border
-        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.15).cgColor)
-        ctx.setLineWidth(1)
-        ctx.addPath(winPath)
-        ctx.strokePath()
-
-        // Titlebar
-        let titlebarRect = CGRect(x: rect.minX, y: rect.maxY - 28, width: rect.width, height: 28)
         ctx.saveGState()
-        let clipPath = CGPath(roundedRect: rect, cornerWidth: 10, cornerHeight: 10, transform: nil)
-        ctx.addPath(clipPath)
-        ctx.clip()
-        ctx.setFillColor(NSColor(red: 0.17, green: 0.18, blue: 0.23, alpha: 1.0).cgColor)
-        ctx.fill(titlebarRect)
-
-        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.08).cgColor)
-        ctx.setLineWidth(1)
-        ctx.move(to: CGPoint(x: rect.minX, y: rect.maxY - 28))
-        ctx.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - 28))
+        ctx.setFillColor(NSColor(white: 0.0, alpha: 0.16).cgColor)
+        ctx.addPath(path)
+        ctx.fillPath()
+        ctx.setStrokeColor(highlightStroke.cgColor)
+        ctx.setLineWidth(1.2)
+        ctx.addPath(path)
         ctx.strokePath()
-        ctx.restoreGState()
-
-        // Traffic lights
-        let tlY = rect.maxY - 14
-        let redCenter = CGPoint(x: rect.minX + 16, y: tlY)
-        let yellowCenter = CGPoint(x: rect.minX + 32, y: tlY)
-        let greenCenter = CGPoint(x: rect.minX + 48, y: tlY)
-
-        ctx.setFillColor(NSColor(red: 1.0, green: 0.37, blue: 0.34, alpha: 1.0).cgColor)
-        ctx.fillEllipse(in: CGRect(x: redCenter.x - 5.5, y: redCenter.y - 5.5, width: 11, height: 11))
-        if hoverClose {
-            ctx.setStrokeColor(NSColor(red: 0.35, green: 0.05, blue: 0.05, alpha: 0.95).cgColor)
-            ctx.setLineWidth(1.4)
-            ctx.move(to: CGPoint(x: redCenter.x - 2.5, y: redCenter.y - 2.5))
-            ctx.addLine(to: CGPoint(x: redCenter.x + 2.5, y: redCenter.y + 2.5))
-            ctx.move(to: CGPoint(x: redCenter.x + 2.5, y: redCenter.y - 2.5))
-            ctx.addLine(to: CGPoint(x: redCenter.x - 2.5, y: redCenter.y + 2.5))
-            ctx.strokePath()
-        }
-
-        ctx.setFillColor(NSColor(red: 1.0, green: 0.74, blue: 0.18, alpha: 1.0).cgColor)
-        ctx.fillEllipse(in: CGRect(x: yellowCenter.x - 5.5, y: yellowCenter.y - 5.5, width: 11, height: 11))
-        ctx.setFillColor(NSColor(red: 0.16, green: 0.78, blue: 0.25, alpha: 1.0).cgColor)
-        ctx.fillEllipse(in: CGRect(x: greenCenter.x - 5.5, y: greenCenter.y - 5.5, width: 11, height: 11))
-
-        drawText(ctx: ctx, text: title, point: CGPoint(x: rect.midX, y: tlY - 5.5), font: NSFont.systemFont(ofSize: 11, weight: .medium), color: NSColor(white: 0.75, alpha: 1.0), alignCenter: true)
-
-        let bodyTop = rect.maxY - 42
-        let barColors: [(CGFloat, CGFloat)] = [(0.6, 0.75), (0.4, 0.55), (0.5, 0.65), (0.3, 0.45)]
-        for (i, (wPct, a)) in barColors.enumerated() {
-            let lineY = bodyTop - CGFloat(i * 15)
-            guard lineY > rect.minY + 14 else { break }
-            let lineRect = CGRect(x: rect.minX + 16, y: lineY, width: (rect.width - 32) * wPct, height: 7)
-            ctx.setFillColor(NSColor(white: 1.0, alpha: a * 0.18).cgColor)
-            ctx.fill(lineRect)
-        }
-
         ctx.restoreGState()
     }
 
-    static func drawDock(ctx: CGContext, center: CGPoint, width: CGFloat, activeIndex: Int, runningIndices: [Int], bounceOffset: CGFloat = 0) {
-        let dockHeight: CGFloat = 48
-        let dockRect = CGRect(x: center.x - width / 2, y: center.y - dockHeight / 2, width: width, height: dockHeight)
-        
-        ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -4), blur: 18, color: NSColor(white: 0, alpha: 0.55).cgColor)
-        let dockPath = CGPath(roundedRect: dockRect, cornerWidth: 16, cornerHeight: 16, transform: nil)
-        ctx.setFillColor(NSColor(red: 0.12, green: 0.13, blue: 0.18, alpha: 0.90).cgColor)
-        ctx.addPath(dockPath)
-        ctx.fillPath()
-        ctx.restoreGState()
-
-        ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.16).cgColor)
-        ctx.setLineWidth(1)
-        ctx.addPath(dockPath)
-        ctx.strokePath()
-
-        let iconCount = 6
-        let spacing = width / CGFloat(iconCount + 1)
-
-        let iconData: [(NSColor, NSColor, String)] = [
-            (NSColor(red: 0.15, green: 0.55, blue: 0.95, alpha: 1), NSColor(red: 0.05, green: 0.35, blue: 0.75, alpha: 1), "Finder"),
-            (NSColor(red: 0.20, green: 0.75, blue: 0.35, alpha: 1), NSColor(red: 0.10, green: 0.55, blue: 0.25, alpha: 1), "Chat"),
-            (NSColor(red: 0.95, green: 0.50, blue: 0.15, alpha: 1), NSColor(red: 0.85, green: 0.25, blue: 0.15, alpha: 1), "Safari"),
-            (NSColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 1), NSColor(red: 0.65, green: 0.25, blue: 0.85, alpha: 1), "DockFlow"),
-            (NSColor(red: 0.95, green: 0.25, blue: 0.45, alpha: 1), NSColor(red: 0.80, green: 0.15, blue: 0.30, alpha: 1), "Music"),
-            (NSColor(red: 0.28, green: 0.30, blue: 0.36, alpha: 1), NSColor(red: 0.16, green: 0.17, blue: 0.22, alpha: 1), "Term")
-        ]
-
-        for i in 0..<iconCount {
-            let cx = dockRect.minX + spacing * CGFloat(i + 1)
-            let isTarget = (i == activeIndex)
-            let cy = center.y + (isTarget ? bounceOffset : 0)
-
-            let iconSize: CGFloat = 32
-            let iconBox = CGRect(x: cx - iconSize / 2, y: cy - iconSize / 2, width: iconSize, height: iconSize)
-            
-            ctx.saveGState()
-            let iconPath = CGPath(roundedRect: iconBox, cornerWidth: 8, cornerHeight: 8, transform: nil)
-            ctx.addPath(iconPath)
+    static func drawAppWindowImage(title: String, appBadge: CGColor, lines: Int = 5) -> CGImage {
+        let w = 840
+        let h = 510
+        return AssetsStore.srgbImage(width: w, height: h) { ctx in
+            let rect = CGRect(x: 0, y: 0, width: w, height: h)
+            let path = CGPath(roundedRect: rect, cornerWidth: 32, cornerHeight: 32, transform: nil)
+            ctx.addPath(path)
             ctx.clip()
 
-            let (c1, c2, tag) = iconData[i]
-            let colors = [c1.cgColor, c2.cgColor] as CFArray
-            let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1])!
-            ctx.drawLinearGradient(grad, start: CGPoint(x: iconBox.minX, y: iconBox.maxY), end: CGPoint(x: iconBox.maxX, y: iconBox.minY), options: [])
-            ctx.restoreGState()
+            // Frosted macOS window body
+            ctx.setFillColor(NSColor(red: 0.14, green: 0.12, blue: 0.17, alpha: 0.96).cgColor)
+            ctx.fill(rect)
 
-            if tag == "DockFlow" {
-                let winGlyph = CGRect(x: cx - 7, y: cy - 5, width: 14, height: 10)
-                let gp = CGPath(roundedRect: winGlyph, cornerWidth: 2, cornerHeight: 2, transform: nil)
-                ctx.setStrokeColor(NSColor.white.cgColor)
+            // Subtle titlebar
+            let tbRect = CGRect(x: 0, y: h - 78, width: w, height: 78)
+            ctx.setFillColor(NSColor(white: 1.0, alpha: 0.055).cgColor)
+            ctx.fill(tbRect)
+            ctx.setFillColor(NSColor(white: 1.0, alpha: 0.10).cgColor)
+            ctx.fill(CGRect(x: 0, y: h - 79, width: w, height: 2))
+
+            // Traffic lights
+            let cy = CGFloat(h - 39)
+            let cols: [NSColor] = [
+                NSColor(red: 1.0, green: 0.37, blue: 0.34, alpha: 1),
+                NSColor(red: 1.0, green: 0.74, blue: 0.18, alpha: 1),
+                NSColor(red: 0.16, green: 0.78, blue: 0.25, alpha: 1)
+            ]
+            for (idx, c) in cols.enumerated() {
+                let cx = CGFloat(42 + idx * 42)
+                ctx.setFillColor(c.cgColor)
+                ctx.fillEllipse(in: CGRect(x: cx - 13, y: cy - 13, width: 26, height: 26))
+            }
+
+            // Title text (scale 2.5x inside texture)
+            drawText(ctx: ctx, title, at: CGPoint(x: CGFloat(w) / 2, y: cy), size: 28, weight: .semibold, color: NSColor(white: 0.88, alpha: 1), centerX: true, centerY: true)
+
+            // Crisp abstract macOS UI content blocks inside window
+            let sideW: CGFloat = 210
+            ctx.setFillColor(NSColor(white: 1.0, alpha: 0.035).cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: sideW, height: CGFloat(h - 79)))
+
+            // Accent pill in sidebar
+            let badgePath = CGPath(roundedRect: CGRect(x: 28, y: h - 148, width: 154, height: 42), cornerWidth: 12, cornerHeight: 12, transform: nil)
+            ctx.setFillColor(appBadge)
+            ctx.addPath(badgePath)
+            ctx.fillPath()
+            for row in 0..<3 {
+                let r = CGRect(x: 28, y: h - 220 - row * 52, width: 125 - (row * 16), height: 22)
+                let rp = CGPath(roundedRect: r, cornerWidth: 9, cornerHeight: 9, transform: nil)
+                ctx.setFillColor(NSColor(white: 1, alpha: 0.10).cgColor)
+                ctx.addPath(rp)
+                ctx.fillPath()
+            }
+
+            // Main pane skeleton bars
+            let widths: [CGFloat] = [440, 350, 480, 290, 390]
+            for row in 0..<min(lines, widths.count) {
+                let y = CGFloat(h - 140 - row * 68)
+                let r = CGRect(x: sideW + 46, y: y, width: widths[row], height: row == 0 ? 34 : 22)
+                let rp = CGPath(roundedRect: r, cornerWidth: 10, cornerHeight: 10, transform: nil)
+                ctx.setFillColor(NSColor(white: 1, alpha: row == 0 ? 0.22 : 0.11).cgColor)
+                ctx.addPath(rp)
+                ctx.fillPath()
+            }
+
+            // Border
+            ctx.setStrokeColor(NSColor(white: 1, alpha: 0.22).cgColor)
+            ctx.setLineWidth(3)
+            ctx.addPath(path)
+            ctx.strokePath()
+        }
+    }
+
+    static func drawGenieWarpedWindow(
+        ctx: CGContext,
+        windowImage: CGImage,
+        normalRect: CGRect,
+        targetIconPoint: CGPoint,
+        progress: CGFloat // 0 = full window, 1 = completely tucked into Dock icon
+    ) {
+        let p = clamp(progress)
+        if p >= 0.99 { return }
+
+        if p <= 0.001 {
+            ctx.saveGState()
+            ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 24, color: NSColor(white: 0, alpha: 0.45).cgColor)
+            ctx.draw(windowImage, in: normalRect)
+            ctx.restoreGState()
+            return
+        }
+
+        // Curved horizontal slice Genie deformation
+        let strips = 30
+        let imgH = CGFloat(windowImage.height)
+        let imgW = CGFloat(windowImage.width)
+        let stripSrcH = imgH / CGFloat(strips)
+
+        let topShiftP = easeInOutCubic(clamp((p - 0.18) / 0.82))
+        let botShiftP = easeOutCubic(clamp(p / 0.72))
+
+        let topY = lerp(normalRect.maxY, targetIconPoint.y + 8, topShiftP)
+        let botY = lerp(normalRect.minY, targetIconPoint.y, botShiftP)
+        let curTotalH = max(4, topY - botY)
+
+        ctx.saveGState()
+        ctx.setAlpha(clamp(1.0 - max(0, p - 0.75) / 0.25))
+
+        for s in 0..<strips {
+            // s=0 bottom, s=strips-1 top
+            let frac0 = CGFloat(s) / CGFloat(strips)
+            let frac1 = CGFloat(s + 1) / CGFloat(strips)
+            let midFrac = (frac0 + frac1) * 0.5
+
+            // Bottom shrinks into narrow funnel first while top narrows slightly behind it
+            let funnelDelay = midFrac * 0.42
+            let localSqueeze = easeInOutCubic(clamp((p - funnelDelay * 0.55) / (1.0 - funnelDelay * 0.55)))
+            let curvedWidthFactor = lerp(1.0, 0.08 + 0.16 * midFrac, localSqueeze)
+            let stripW = max(6, normalRect.width * curvedWidthFactor)
+
+            let xShift = lerp(normalRect.midX, targetIconPoint.x, easeInOutCubic(clamp(localSqueeze * (1.15 - 0.25 * midFrac))))
+            let dstY0 = botY + curTotalH * frac0
+            let dstH = curTotalH * (frac1 - frac0) + 0.8
+
+            let cropY = CGFloat(strips - 1 - s) * stripSrcH // CGImage cropping uses top-left origin
+            if let slice = windowImage.cropping(to: CGRect(x: 0, y: cropY, width: imgW, height: stripSrcH)) {
+                ctx.draw(slice, in: CGRect(x: xShift - stripW / 2, y: dstY0, width: stripW, height: dstH))
+            }
+        }
+        ctx.restoreGState()
+    }
+
+    static func drawRealDock(
+        ctx: CGContext,
+        center: CGPoint,
+        width: CGFloat,
+        icons: [(String, CGImage?, NSColor)],
+        runningIndices: [Int],
+        bounceIndex: Int? = nil,
+        bounceOffset: CGFloat = 0,
+        activeHighlightIndex: Int? = nil,
+        labelIndex: Int? = nil,
+        labelText: String? = nil
+    ) {
+        let dockH: CGFloat = 68
+        let dockRect = CGRect(x: center.x - width / 2, y: center.y - dockH / 2, width: width, height: dockH)
+        let dockPath = CGPath(roundedRect: dockRect, cornerWidth: 20, cornerHeight: 20, transform: nil)
+
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 20, color: NSColor(white: 0, alpha: 0.48).cgColor)
+        ctx.setFillColor(NSColor(red: 0.14, green: 0.11, blue: 0.16, alpha: 0.88).cgColor)
+        ctx.addPath(dockPath)
+        ctx.fillPath()
+        ctx.restoreGState()
+
+        ctx.saveGState()
+        ctx.setStrokeColor(NSColor(white: 1, alpha: 0.22).cgColor)
+        ctx.setLineWidth(1)
+        ctx.addPath(dockPath)
+        ctx.strokePath()
+        ctx.restoreGState()
+
+        let count = icons.count
+        let sidePad: CGFloat = 18
+        let usableW = width - sidePad * 2
+        let slotW = usableW / CGFloat(count)
+        let iconSz: CGFloat = 46
+
+        for (i, item) in icons.enumerated() {
+            let cx = dockRect.minX + sidePad + slotW * (CGFloat(i) + 0.5)
+            let isBouncing = (bounceIndex == i)
+            let cy = center.y + 3 + (isBouncing ? bounceOffset : 0)
+            let iconRect = CGRect(x: cx - iconSz / 2, y: cy - iconSz / 2, width: iconSz, height: iconSz)
+
+            if activeHighlightIndex == i {
+                let glowRect = iconRect.insetBy(dx: -4, dy: -4)
+                let gp = CGPath(roundedRect: glowRect, cornerWidth: 11, cornerHeight: 11, transform: nil)
+                ctx.saveGState()
+                ctx.setStrokeColor(NSColor(white: 1, alpha: 0.45).cgColor)
                 ctx.setLineWidth(1.5)
                 ctx.addPath(gp)
                 ctx.strokePath()
-            } else if tag == "Safari" {
-                ctx.setStrokeColor(NSColor.white.cgColor)
-                ctx.setLineWidth(1.4)
-                ctx.strokeEllipse(in: CGRect(x: cx - 7, y: cy - 7, width: 14, height: 14))
-                ctx.setFillColor(NSColor.white.cgColor)
-                ctx.fillEllipse(in: CGRect(x: cx - 2, y: cy - 2, width: 4, height: 4))
-            } else if tag == "Finder" {
-                let smile = CGMutablePath()
-                smile.addArc(center: CGPoint(x: cx, y: cy + 1), radius: 6, startAngle: 0.2 * .pi, endAngle: 0.8 * .pi, clockwise: false)
-                ctx.setStrokeColor(NSColor.white.cgColor)
-                ctx.setLineWidth(1.5)
-                ctx.addPath(smile)
-                ctx.strokePath()
-            } else if tag == "Music" {
-                drawText(ctx: ctx, text: "♫", point: CGPoint(x: cx, y: cy - 6), font: NSFont.systemFont(ofSize: 13, weight: .bold), color: .white, alignCenter: true)
-            } else if tag == "Term" {
-                drawText(ctx: ctx, text: ">_", point: CGPoint(x: cx, y: cy - 5), font: NSFont.systemFont(ofSize: 10, weight: .bold), color: .white, alignCenter: true)
-            } else {
-                drawText(ctx: ctx, text: "●", point: CGPoint(x: cx, y: cy - 6), font: NSFont.systemFont(ofSize: 11, weight: .bold), color: .white, alignCenter: true)
+                ctx.restoreGState()
             }
 
-            if isTarget {
-                ctx.setStrokeColor(NSColor(red: 0.45, green: 0.75, blue: 1.0, alpha: 0.85).cgColor)
-                ctx.setLineWidth(1.8)
-                ctx.addPath(iconPath)
-                ctx.strokePath()
+            if let cgImg = item.1 {
+                ctx.draw(cgImg, in: iconRect)
+            } else {
+                drawCrispVectorIcon(ctx: ctx, tag: item.0, rect: iconRect)
             }
 
             if runningIndices.contains(i) {
-                let dotY = dockRect.minY + 4
                 ctx.setFillColor(NSColor.white.cgColor)
-                ctx.fillEllipse(in: CGRect(x: cx - 2.5, y: dotY - 2.5, width: 5, height: 5))
+                ctx.fillEllipse(in: CGRect(x: cx - 2.3, y: dockRect.minY + 4.5, width: 4.6, height: 4.6))
+            }
+
+            if labelIndex == i, let badge = labelText {
+                let bw: CGFloat = 138
+                let bh: CGFloat = 22
+                let bRect = CGRect(x: cx - bw / 2, y: dockRect.maxY + 8, width: bw, height: bh)
+                let bp = CGPath(roundedRect: bRect, cornerWidth: 8, cornerHeight: 8, transform: nil)
+                ctx.saveGState()
+                ctx.setFillColor(Palette.activePill.cgColor)
+                ctx.addPath(bp)
+                ctx.fillPath()
+                ctx.restoreGState()
+                drawText(ctx: ctx, badge, at: CGPoint(x: bRect.midX, y: bRect.midY), size: 10.5, weight: .bold, color: Palette.activeText, centerX: true, centerY: true)
             }
         }
     }
 
-    static func drawCursor(ctx: CGContext, at: CGPoint, isClicking: Bool) {
+    static func drawCrispVectorIcon(ctx: CGContext, tag: String, rect: CGRect) {
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ip = CGPath(roundedRect: rect, cornerWidth: 10.5, cornerHeight: 10.5, transform: nil)
         ctx.saveGState()
-        if isClicking {
-            ctx.setStrokeColor(NSColor(red: 0.4, green: 0.75, blue: 1.0, alpha: 0.75).cgColor)
+        ctx.addPath(ip)
+        ctx.clip()
+
+        let colors: [CGColor]
+        switch tag {
+        case "Finder":
+            colors = [NSColor(red: 0.28, green: 0.68, blue: 0.99, alpha: 1).cgColor, NSColor(red: 0.12, green: 0.44, blue: 0.92, alpha: 1).cgColor]
+        case "Safari":
+            colors = [NSColor(red: 0.22, green: 0.72, blue: 0.98, alpha: 1).cgColor, NSColor(red: 0.12, green: 0.42, blue: 0.88, alpha: 1).cgColor]
+        case "Notes":
+            colors = [NSColor(red: 0.99, green: 0.82, blue: 0.20, alpha: 1).cgColor, NSColor(red: 0.94, green: 0.65, blue: 0.12, alpha: 1).cgColor]
+        case "Telegram":
+            colors = [NSColor(red: 0.22, green: 0.68, blue: 0.96, alpha: 1).cgColor, NSColor(red: 0.12, green: 0.50, blue: 0.86, alpha: 1).cgColor]
+        case "DockFlow":
+            colors = [NSColor(red: 0.82, green: 0.28, blue: 0.62, alpha: 1).cgColor, NSColor(red: 0.36, green: 0.24, blue: 0.74, alpha: 1).cgColor]
+        default: // Music
+            colors = [NSColor(red: 0.98, green: 0.24, blue: 0.42, alpha: 1).cgColor, NSColor(red: 0.82, green: 0.14, blue: 0.30, alpha: 1).cgColor]
+        }
+        let grad = CGGradient(colorsSpace: cs, colors: colors as CFArray, locations: [0, 1])!
+        ctx.drawLinearGradient(grad, start: CGPoint(x: rect.minX, y: rect.maxY), end: CGPoint(x: rect.maxX, y: rect.minY), options: [])
+
+        if tag == "Notes" {
+            // Crisp top yellow header + ruled cream pad
+            ctx.setFillColor(NSColor(white: 0.98, alpha: 1).cgColor)
+            ctx.fill(CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height * 0.72))
+            ctx.setFillColor(NSColor(white: 0.78, alpha: 1).cgColor)
+            for r in 0..<3 {
+                ctx.fill(CGRect(x: rect.minX + 8, y: rect.minY + 9 + CGFloat(r) * 7.5, width: rect.width - 16, height: 1.4))
+            }
+        } else if tag == "Safari" {
+            ctx.setStrokeColor(NSColor.white.cgColor)
+            ctx.setLineWidth(2.0)
+            ctx.strokeEllipse(in: rect.insetBy(dx: 8, dy: 8))
+            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.fillEllipse(in: CGRect(x: rect.midX - 2.5, y: rect.midY - 2.5, width: 5, height: 5))
+        } else if tag == "Finder" {
+            let smile = CGMutablePath()
+            smile.addArc(center: CGPoint(x: rect.midX, y: rect.midY + 2), radius: 8.5, startAngle: 1.15 * .pi, endAngle: 1.85 * .pi, clockwise: false)
+            ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(2.0)
+            ctx.addPath(smile); ctx.strokePath()
+        } else if tag == "Telegram" {
+            let tri = CGMutablePath()
+            tri.move(to: CGPoint(x: rect.midX + 9, y: rect.midY + 6))
+            tri.addLine(to: CGPoint(x: rect.midX - 9, y: rect.midY))
+            tri.addLine(to: CGPoint(x: rect.midX - 1, y: rect.midY - 8))
+            tri.closeSubpath()
+            ctx.setFillColor(NSColor.white.cgColor); ctx.addPath(tri); ctx.fillPath()
+        } else if tag == "DockFlow" {
+            let dp = CGPath(roundedRect: rect.insetBy(dx: 10, dy: 12), cornerWidth: 3, cornerHeight: 3, transform: nil)
+            ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(2.0)
+            ctx.addPath(dp); ctx.strokePath()
+        } else {
+            drawText(ctx: ctx, "♫", at: CGPoint(x: rect.midX, y: rect.midY), size: 19, weight: .bold, color: .white, centerX: true, centerY: true)
+        }
+        ctx.restoreGState()
+    }
+
+    static func drawCursor(ctx: CGContext, at: CGPoint, clicking: Bool, rippleProgress: CGFloat = 0) {
+        ctx.saveGState()
+        if clicking || rippleProgress > 0 {
+            let rp = clicking ? 0.35 : rippleProgress
+            let rad = lerp(8, 22, rp)
+            ctx.setStrokeColor(NSColor(white: 1.0, alpha: clamp(0.85 * (1 - rp))).cgColor)
             ctx.setLineWidth(2.2)
-            ctx.strokeEllipse(in: CGRect(x: at.x - 14, y: at.y - 14, width: 28, height: 28))
+            ctx.strokeEllipse(in: CGRect(x: at.x - rad, y: at.y - rad, width: rad * 2, height: rad * 2))
         }
 
-        ctx.setShadow(offset: CGSize(width: 1, height: -2), blur: 5, color: NSColor(white: 0, alpha: 0.65).cgColor)
-
-        let path = CGMutablePath()
-        path.move(to: at)
-        path.addLine(to: CGPoint(x: at.x + 11, y: at.y - 11))
-        path.addLine(to: CGPoint(x: at.x + 5, y: at.y - 11))
-        path.addLine(to: CGPoint(x: at.x + 8, y: at.y - 17))
-        path.addLine(to: CGPoint(x: at.x + 4.5, y: at.y - 18.5))
-        path.addLine(to: CGPoint(x: at.x + 1.5, y: at.y - 12.5))
-        path.addLine(to: CGPoint(x: at.x, y: at.y - 15))
-        path.closeSubpath()
+        ctx.setShadow(offset: CGSize(width: 1, height: -2), blur: 6, color: NSColor(white: 0, alpha: 0.65).cgColor)
+        let p = CGMutablePath()
+        p.move(to: at)
+        p.addLine(to: CGPoint(x: at.x + 13, y: at.y - 13))
+        p.addLine(to: CGPoint(x: at.x + 6, y: at.y - 13))
+        p.addLine(to: CGPoint(x: at.x + 9.5, y: at.y - 20.5))
+        p.addLine(to: CGPoint(x: at.x + 5.5, y: at.y - 22.0))
+        p.addLine(to: CGPoint(x: at.x + 2, y: at.y - 14.5))
+        p.addLine(to: CGPoint(x: at.x, y: at.y - 18))
+        p.closeSubpath()
 
         ctx.setFillColor(NSColor.black.cgColor)
         ctx.setStrokeColor(NSColor.white.cgColor)
-        ctx.setLineWidth(1.4)
-        ctx.addPath(path)
+        ctx.setLineWidth(1.6)
+        ctx.addPath(p)
         ctx.drawPath(using: .fillStroke)
         ctx.restoreGState()
     }
-
-    static func drawCurvedArrow(ctx: CGContext, from: CGPoint, to: CGPoint, progress: CGFloat, isDownward: Bool) {
-        ctx.saveGState()
-        let path = CGMutablePath()
-        path.move(to: from)
-        let ctrlX = (from.x + to.x) / 2 + (isDownward ? 30 : -30)
-        let ctrlY = (from.y + to.y) / 2
-        path.addQuadCurve(to: to, control: CGPoint(x: ctrlX, y: ctrlY))
-
-        let dashes: [CGFloat] = [5, 4]
-        ctx.setLineDash(phase: -progress * 24, lengths: dashes)
-        ctx.setStrokeColor(NSColor(red: 0.45, green: 0.70, blue: 1.0, alpha: 0.75).cgColor)
-        ctx.setLineWidth(2.2)
-        ctx.addPath(path)
-        ctx.strokePath()
-        ctx.restoreGState()
-    }
 }
 
-// MARK: - GIF 1 Generator: Dock Minimize & Restore (60 FPS / 50 FPS Ultra-Smooth Retina)
-func generateDockMinimizeGIF(outputPath: String, lang: Language) {
-    let ptWidth: CGFloat = 780
-    let ptHeight: CGFloat = 440
-    let scale: CGFloat = 2.0 // 2x Retina!
-    let pxWidth = Int(ptWidth * scale)
-    let pxHeight = Int(ptHeight * scale)
-    
-    let frameCount = 120 // 120 frames at 0.02s delay = 2.4s silky smooth loop
-    let delay = 0.02
-    
-    let url = URL(fileURLWithPath: outputPath)
-    guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, frameCount, nil) else {
-        print("Failed to create destination for \(outputPath)")
-        return
+// MARK: - SwiftUI Embedded UI Frame Renderer for GIF 3 (UI Flow 4K)
+
+struct UIPanelSnapshotView: View {
+    let lang: Language
+    let activeTab: Int // 0 = rules, 1 = exclusions, 2 = system
+    let tabPillFraction: CGFloat // smoothly animated 0.0 -> 2.0
+    let toggleValue: Bool
+    let middleClickProgress: CGFloat // 0 = New Window, 1 = Quit App
+    let panelHeight: CGFloat
+    let tab1ContentOpacity: Double
+    let tab2ContentOpacity: Double
+    let tab3ContentOpacity: Double
+    let icons: [(String, CGImage?)]
+
+    private let activeFill = Color(white: 0.94)
+    private let activeText = Color(white: 0.06)
+    private let primaryText = Color.white.opacity(0.94)
+    private let secondaryText = Color.white.opacity(0.60)
+    private let wellFill = Color.white.opacity(0.085)
+    private let wellBorder = Color.white.opacity(0.14)
+    private let hairline = Color.white.opacity(0.14)
+
+    private func bodyFont(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .custom("Avenir Next", size: size).weight(weight)
     }
 
-    let gifProps: [String: Any] = [
-        kCGImagePropertyGIFDictionary as String: [
-            kCGImagePropertyGIFLoopCount as String: 0
-        ]
-    ]
-    CGImageDestinationSetProperties(dest, gifProps as CFDictionary)
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header with sliding pill
+            HStack(spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("DockFlow").font(bodyFont(13.5, weight: .bold)).foregroundColor(primaryText)
+                    Text("v2.2.0").font(.system(size: 11, design: .monospaced)).foregroundColor(secondaryText)
+                }
+                Spacer()
+                let t0 = lang == .ru ? "Правила" : "Rules"
+                let t1 = lang == .ru ? "Исключения (4)" : "Exclusions (4)"
+                let t2 = lang == .ru ? "Система" : "System"
 
-    let frameProps: [String: Any] = [
-        kCGImagePropertyGIFDictionary as String: [
-            kCGImagePropertyGIFDelayTime as String: delay,
-            kCGImagePropertyGIFUnclampedDelayTime as String: delay
-        ]
-    ]
-
-    let subtitle = (lang == .ru)
-        ? "Плавное сворачивание и разворачивание по клику в Доке"
-        : "Smooth Genie minimize and restore on Dock click"
-    let leftBottom = (lang == .ru)
-        ? "Клик по иконке — свернуть"
-        : "Click Dock icon — minimize"
-    let rightBottom = (lang == .ru)
-        ? "Повторный клик — развернуть"
-        : "Repeat click — restore"
-    let winTitle = (lang == .ru)
-        ? "Notes — Заметки"
-        : "Notes — Application"
-
-    for frame in 0..<frameCount {
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pxWidth, pixelsHigh: pxHeight, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        let ctx = NSGraphicsContext.current!.cgContext
-        ctx.scaleBy(x: scale, y: scale) // Native 2x Retina rendering!
-
-        let fullRect = CGRect(x: 0, y: 0, width: ptWidth, height: ptHeight)
-        DrawUtils.drawBackground(ctx: ctx, rect: fullRect)
-
-        DrawUtils.drawHeader(ctx: ctx, width: ptWidth, topY: ptHeight - 18, title: "DockFlow", subtitle: subtitle)
-
-        let cardW: CGFloat = 355
-        let cardH: CGFloat = 320
-        let cardY: CGFloat = 35
-
-        let leftCardRect = CGRect(x: 22, y: cardY, width: cardW, height: cardH)
-        let rightCardRect = CGRect(x: ptWidth - cardW - 22, y: cardY, width: cardW, height: cardH)
-
-        for cardRect in [leftCardRect, rightCardRect] {
-            ctx.saveGState()
-            let cPath = CGPath(roundedRect: cardRect, cornerWidth: 16, cornerHeight: 16, transform: nil)
-            ctx.setFillColor(NSColor(red: 0.10, green: 0.11, blue: 0.15, alpha: 0.75).cgColor)
-            ctx.addPath(cPath)
-            ctx.fillPath()
-            ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.09).cgColor)
-            ctx.setLineWidth(1)
-            ctx.addPath(cPath)
-            ctx.strokePath()
-            ctx.restoreGState()
-        }
-
-        DrawUtils.drawText(ctx: ctx, text: leftBottom, point: CGPoint(x: leftCardRect.midX, y: leftCardRect.minY + 22), font: NSFont.systemFont(ofSize: 13.5, weight: .semibold), color: .white, alignCenter: true)
-        DrawUtils.drawText(ctx: ctx, text: rightBottom, point: CGPoint(x: rightCardRect.midX, y: rightCardRect.minY + 22), font: NSFont.systemFont(ofSize: 13.5, weight: .semibold), color: .white, alignCenter: true)
-
-        let t = CGFloat(frame) / CGFloat(frameCount)
-
-        let leftDockCenter = CGPoint(x: leftCardRect.midX, y: leftCardRect.minY + 72)
-        let rightDockCenter = CGPoint(x: rightCardRect.midX, y: rightCardRect.minY + 72)
-
-        // LEFT SIDE: MINIMIZING
-        let leftWinRect = CGRect(x: leftCardRect.midX - 115, y: leftCardRect.maxY - 150, width: 230, height: 130)
-        var leftWinScale: CGFloat = 1.0
-        var leftWinAlpha: CGFloat = 1.0
-        var leftCursorPos = CGPoint(x: leftCardRect.midX - 30, y: leftCardRect.midY + 15)
-        var leftClicking = false
-        var leftBounce: CGFloat = 0
-
-        let targetIconX_L = leftDockCenter.x + 20
-        let targetIconY_L = leftDockCenter.y + 2
-
-        if t < 0.25 {
-            let p = t / 0.25
-            leftCursorPos = CGPoint(x: lerp(leftCardRect.midX - 30, targetIconX_L, easeInOutCubic(p)),
-                                    y: lerp(leftCardRect.midY + 15, targetIconY_L, easeInOutCubic(p)))
-        } else if t < 0.38 {
-            leftCursorPos = CGPoint(x: targetIconX_L, y: targetIconY_L)
-            leftClicking = (t >= 0.28 && t <= 0.34)
-            leftBounce = (t >= 0.28 && t <= 0.35) ? 4 : 0
-        } else if t < 0.70 {
-            leftCursorPos = CGPoint(x: targetIconX_L, y: targetIconY_L)
-            let p = (t - 0.38) / 0.32
-            leftWinScale = lerp(1.0, 0.05, easeInOutCubic(p))
-            leftWinAlpha = lerp(1.0, 0.1, p)
-        } else {
-            leftWinScale = 0.0
-            leftWinAlpha = 0.0
-            leftCursorPos = CGPoint(x: targetIconX_L, y: targetIconY_L)
-        }
-
-        let currentLeftWinRect = CGRect(
-            x: lerp(leftWinRect.minX, targetIconX_L - leftWinRect.width * leftWinScale / 2, 1.0 - leftWinScale),
-            y: lerp(leftWinRect.minY, leftDockCenter.y + 10, 1.0 - leftWinScale),
-            width: leftWinRect.width,
-            height: leftWinRect.height
-        )
-        DrawUtils.drawWindow(ctx: ctx, rect: currentLeftWinRect, title: winTitle, scale: leftWinScale, alpha: leftWinAlpha)
-
-        let arrowStart = CGPoint(x: leftCardRect.midX - 10, y: leftCardRect.midY + 45)
-        let arrowEnd = CGPoint(x: leftDockCenter.x + 18, y: leftDockCenter.y + 32)
-        DrawUtils.drawCurvedArrow(ctx: ctx, from: arrowStart, to: arrowEnd, progress: t, isDownward: true)
-
-        DrawUtils.drawDock(ctx: ctx, center: leftDockCenter, width: 280, activeIndex: 3, runningIndices: [0, 1, 3, 4], bounceOffset: leftBounce)
-        DrawUtils.drawCursor(ctx: ctx, at: leftCursorPos, isClicking: leftClicking)
-
-        // RIGHT SIDE: RESTORING
-        let rightWinRect = CGRect(x: rightCardRect.midX - 115, y: rightCardRect.maxY - 150, width: 230, height: 130)
-        var rightWinScale: CGFloat = 0.0
-        var rightWinAlpha: CGFloat = 0.0
-        let targetIconX_R = rightDockCenter.x + 20
-        let targetIconY_R = rightDockCenter.y + 2
-        var rightCursorPos = CGPoint(x: targetIconX_R + 30, y: targetIconY_R - 15)
-        var rightClicking = false
-        var rightBounce: CGFloat = 0
-
-        if t < 0.18 {
-            let p = t / 0.18
-            rightCursorPos = CGPoint(x: lerp(targetIconX_R + 30, targetIconX_R, easeInOutCubic(p)),
-                                     y: lerp(targetIconY_R - 15, targetIconY_R, easeInOutCubic(p)))
-        } else if t < 0.28 {
-            rightCursorPos = CGPoint(x: targetIconX_R, y: targetIconY_R)
-            rightClicking = (t >= 0.20 && t <= 0.26)
-            rightBounce = (t >= 0.20 && t <= 0.26) ? 4 : 0
-        } else if t < 0.60 {
-            rightCursorPos = CGPoint(x: targetIconX_R, y: targetIconY_R)
-            let p = (t - 0.28) / 0.32
-            rightWinScale = lerp(0.05, 1.0, easeOutBack(p))
-            rightWinAlpha = lerp(0.1, 1.0, p)
-        } else {
-            rightWinScale = 1.0
-            rightWinAlpha = 1.0
-            rightCursorPos = CGPoint(x: targetIconX_R, y: targetIconY_R)
-        }
-
-        let currentRightWinRect = CGRect(
-            x: lerp(targetIconX_R - rightWinRect.width * rightWinScale / 2, rightWinRect.minX, rightWinScale),
-            y: lerp(rightDockCenter.y + 10, rightWinRect.minY, rightWinScale),
-            width: rightWinRect.width,
-            height: rightWinRect.height
-        )
-        DrawUtils.drawWindow(ctx: ctx, rect: currentRightWinRect, title: winTitle, scale: rightWinScale, alpha: rightWinAlpha)
-
-        let rArrowStart = CGPoint(x: rightDockCenter.x + 22, y: rightDockCenter.y + 32)
-        let rArrowEnd = CGPoint(x: rightCardRect.midX + 15, y: rightCardRect.midY + 45)
-        DrawUtils.drawCurvedArrow(ctx: ctx, from: rArrowStart, to: rArrowEnd, progress: t, isDownward: false)
-
-        DrawUtils.drawDock(ctx: ctx, center: rightDockCenter, width: 280, activeIndex: 3, runningIndices: [0, 1, 3, 4], bounceOffset: rightBounce)
-        DrawUtils.drawCursor(ctx: ctx, at: rightCursorPos, isClicking: rightClicking)
-
-        NSGraphicsContext.restoreGraphicsState()
-        CGImageDestinationAddImage(dest, rep.cgImage!, frameProps as CFDictionary)
-    }
-
-    if CGImageDestinationFinalize(dest) {
-        print("✅ Successfully generated \(outputPath)")
-    } else {
-        print("❌ Failed finalize \(outputPath)")
-    }
-}
-
-// MARK: - GIF 2 Generator: Quit on Close Button (60 FPS / 50 FPS Ultra-Smooth Retina)
-func generateQuitOnCloseGIF(outputPath: String, lang: Language) {
-    let ptWidth: CGFloat = 780
-    let ptHeight: CGFloat = 440
-    let scale: CGFloat = 2.0 // 2x Retina!
-    let pxWidth = Int(ptWidth * scale)
-    let pxHeight = Int(ptHeight * scale)
-    
-    let frameCount = 120
-    let delay = 0.02
-    
-    let url = URL(fileURLWithPath: outputPath)
-    guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, frameCount, nil) else {
-        print("Failed to create destination for \(outputPath)")
-        return
-    }
-
-    let gifProps: [String: Any] = [
-        kCGImagePropertyGIFDictionary as String: [
-            kCGImagePropertyGIFLoopCount as String: 0
-        ]
-    ]
-    CGImageDestinationSetProperties(dest, gifProps as CFDictionary)
-
-    let frameProps: [String: Any] = [
-        kCGImagePropertyGIFDictionary as String: [
-            kCGImagePropertyGIFDelayTime as String: delay,
-            kCGImagePropertyGIFUnclampedDelayTime as String: delay
-        ]
-    ]
-
-    let subtitle = (lang == .ru)
-        ? "Закрытие по крестику полностью завершает процесс (⌘Q)"
-        : "Close button completely quits application (⌘Q)"
-    let leftTitle = (lang == .ru)
-        ? "Стандартная macOS"
-        : "Default macOS"
-    let rightTitle = (lang == .ru)
-        ? "✨ С DockFlow"
-        : "✨ With DockFlow"
-    let leftBadge = (lang == .ru)
-        ? "⚠️ Точка осталась • Процесс в фоне"
-        : "⚠️ Dot remains • Process stays in RAM"
-    let rightBadge = (lang == .ru)
-        ? "✓ Завершено (⌘Q) • 0% CPU и RAM"
-        : "✓ Fully Quit (⌘Q) • 0% CPU & RAM"
-    let actionHint = (lang == .ru)
-        ? "Клик по красному крестику..."
-        : "Clicking red close button..."
-    let winTitle = (lang == .ru)
-        ? "Safari — Браузер"
-        : "Safari — Browser"
-
-    for frame in 0..<frameCount {
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pxWidth, pixelsHigh: pxHeight, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        let ctx = NSGraphicsContext.current!.cgContext
-        ctx.scaleBy(x: scale, y: scale)
-
-        let fullRect = CGRect(x: 0, y: 0, width: ptWidth, height: ptHeight)
-        DrawUtils.drawBackground(ctx: ctx, rect: fullRect)
-
-        DrawUtils.drawHeader(ctx: ctx, width: ptWidth, topY: ptHeight - 18, title: "DockFlow", subtitle: subtitle)
-
-        let cardW: CGFloat = 355
-        let cardH: CGFloat = 320
-        let cardY: CGFloat = 35
-
-        let leftCardRect = CGRect(x: 22, y: cardY, width: cardW, height: cardH)
-        let rightCardRect = CGRect(x: ptWidth - cardW - 22, y: cardY, width: cardW, height: cardH)
-
-        for (cardRect, isDockFlow) in [(leftCardRect, false), (rightCardRect, true)] {
-            ctx.saveGState()
-            let cPath = CGPath(roundedRect: cardRect, cornerWidth: 16, cornerHeight: 16, transform: nil)
-            ctx.setFillColor(NSColor(red: 0.10, green: 0.11, blue: 0.15, alpha: 0.75).cgColor)
-            ctx.addPath(cPath)
-            ctx.fillPath()
-            let strokeColor = isDockFlow ? NSColor(red: 0.25, green: 0.65, blue: 1.0, alpha: 0.35).cgColor : NSColor(white: 1.0, alpha: 0.09).cgColor
-            ctx.setStrokeColor(strokeColor)
-            ctx.setLineWidth(1.5)
-            ctx.addPath(cPath)
-            ctx.strokePath()
-            ctx.restoreGState()
-        }
-
-        DrawUtils.drawText(ctx: ctx, text: leftTitle, point: CGPoint(x: leftCardRect.midX, y: leftCardRect.maxY - 24), font: NSFont.systemFont(ofSize: 13.5, weight: .bold), color: NSColor(red: 1.0, green: 0.45, blue: 0.45, alpha: 1.0), alignCenter: true)
-        DrawUtils.drawText(ctx: ctx, text: rightTitle, point: CGPoint(x: rightCardRect.midX, y: rightCardRect.maxY - 24), font: NSFont.systemFont(ofSize: 13.5, weight: .bold), color: NSColor(red: 0.35, green: 0.88, blue: 0.48, alpha: 1.0), alignCenter: true)
-
-        let t = CGFloat(frame) / CGFloat(frameCount)
-
-        let leftDockCenter = CGPoint(x: leftCardRect.midX, y: leftCardRect.minY + 70)
-        let rightDockCenter = CGPoint(x: rightCardRect.midX, y: rightCardRect.minY + 70)
-
-        let winW: CGFloat = 230
-        let winH: CGFloat = 125
-        let leftWinRect = CGRect(x: leftCardRect.midX - winW / 2, y: leftCardRect.minY + 125, width: winW, height: winH)
-        let rightWinRect = CGRect(x: rightCardRect.midX - winW / 2, y: rightCardRect.minY + 125, width: winW, height: winH)
-
-        let closeBtnTargetL = CGPoint(x: leftWinRect.minX + 16, y: leftWinRect.maxY - 14)
-        let closeBtnTargetR = CGPoint(x: rightWinRect.minX + 16, y: rightWinRect.maxY - 14)
-
-        var lCursorPos = CGPoint(x: leftWinRect.midX, y: leftWinRect.midY)
-        var rCursorPos = CGPoint(x: rightWinRect.midX, y: rightWinRect.midY)
-        var lHover = false, rHover = false
-        var lClick = false, rClick = false
-        var lWinAlpha: CGFloat = 1.0, rWinAlpha: CGFloat = 1.0
-        let lRunning = [0, 1, 3]
-        var rRunning = [0, 1, 3]
-
-        if t < 0.25 {
-            let p = t / 0.25
-            lCursorPos = CGPoint(x: lerp(leftWinRect.midX, closeBtnTargetL.x, easeInOutCubic(p)),
-                                 y: lerp(leftWinRect.midY, closeBtnTargetL.y, easeInOutCubic(p)))
-            rCursorPos = CGPoint(x: lerp(rightWinRect.midX, closeBtnTargetR.x, easeInOutCubic(p)),
-                                 y: lerp(rightWinRect.midY, closeBtnTargetR.y, easeInOutCubic(p)))
-        } else if t < 0.35 {
-            lCursorPos = closeBtnTargetL
-            rCursorPos = closeBtnTargetR
-            lHover = true
-            rHover = true
-        } else if t < 0.45 {
-            lCursorPos = closeBtnTargetL
-            rCursorPos = closeBtnTargetR
-            lHover = true
-            rHover = true
-            lClick = (t >= 0.35 && t <= 0.40)
-            rClick = (t >= 0.35 && t <= 0.40)
-        } else if t < 0.65 {
-            lCursorPos = CGPoint(x: closeBtnTargetL.x + 10, y: closeBtnTargetL.y - 15)
-            rCursorPos = CGPoint(x: closeBtnTargetR.x + 10, y: closeBtnTargetR.y - 15)
-            let p = (t - 0.45) / 0.20
-            lWinAlpha = lerp(1.0, 0.0, p)
-            rWinAlpha = lerp(1.0, 0.0, p)
-            if t > 0.52 {
-                rRunning = [0, 1]
+                HStack(spacing: 2) {
+                    Text(t0)
+                        .font(bodyFont(11.5, weight: activeTab == 0 ? .semibold : .medium))
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(activeTab == 0 ? activeFill : .clear))
+                        .foregroundColor(activeTab == 0 ? activeText : secondaryText)
+                    Text(t1)
+                        .font(bodyFont(11.5, weight: activeTab == 1 ? .semibold : .medium))
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(activeTab == 1 ? activeFill : .clear))
+                        .foregroundColor(activeTab == 1 ? activeText : secondaryText)
+                    Text(t2)
+                        .font(bodyFont(11.5, weight: activeTab == 2 ? .semibold : .medium))
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(activeTab == 2 ? activeFill : .clear))
+                        .foregroundColor(activeTab == 2 ? activeText : secondaryText)
+                }
+                .padding(3)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(wellFill))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(wellBorder, lineWidth: 1))
             }
+            .padding(.horizontal, 14).padding(.vertical, 11)
+
+            Rectangle().fill(hairline).frame(height: 1)
+
+            VStack(spacing: 0) {
+                ZStack(alignment: .top) {
+                    if tab1ContentOpacity > 0.02 {
+                        rulesTab.opacity(tab1ContentOpacity)
+                    }
+                    if tab2ContentOpacity > 0.02 {
+                        exclusionsTab.opacity(tab2ContentOpacity)
+                    }
+                    if tab3ContentOpacity > 0.02 {
+                        systemTab.opacity(tab3ContentOpacity)
+                    }
+                }
+                .clipped()
+
+                Spacer(minLength: 0)
+
+                VStack(spacing: 9) {
+                    Rectangle().fill(hairline).frame(height: 1)
+                    HStack {
+                        HStack(spacing: 6) {
+                            Circle().fill(Color(red: 74/255, green: 222/255, blue: 128/255)).frame(width: 6.5, height: 6.5)
+                            Text(lang == .ru ? "AX активен" : "AX Active").font(.system(size: 11, design: .monospaced)).foregroundColor(secondaryText)
+                        }
+                        Spacer()
+                        Text(lang == .ru ? "Завершить (⌘Q)" : "Quit (⌘Q)").font(bodyFont(11.5, weight: .medium)).foregroundColor(secondaryText)
+                    }
+                }
+            }
+            .padding(14)
+        }
+        .frame(width: 446, height: panelHeight, alignment: .top)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(red: 0.19, green: 0.10, blue: 0.18))
+        )
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.24), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func toggleView(_ on: Bool) -> some View {
+        Capsule(style: .continuous)
+            .fill(on ? activeFill : Color.white.opacity(0.18))
+            .frame(width: 32, height: 18)
+            .overlay(
+                Capsule(style: .continuous)
+                    .fill(on ? activeText : Color.white.opacity(0.95))
+                    .frame(width: 14, height: 14)
+                    .offset(x: on ? 7 : -7)
+            )
+    }
+
+    private func ruleCard(_ title: String, _ sub: String, _ on: Bool) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(bodyFont(12.5, weight: .semibold)).foregroundColor(primaryText)
+                Text(sub).font(bodyFont(11)).foregroundColor(secondaryText).lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            toggleView(on)
+        }
+        .padding(.horizontal, 13).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(wellFill))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(wellBorder, lineWidth: 1))
+    }
+
+    private var rulesTab: some View {
+        VStack(spacing: 8) {
+            ruleCard(
+                lang == .ru ? "Эффект Джинна в Доке" : "Genie Effect in Dock",
+                lang == .ru ? "Клик по иконке активного приложения в Доке плавно сворачивает его с анимацией" : "Clicking the active app icon in Dock smoothly minimizes it with animation",
+                toggleValue
+            )
+            ruleCard(
+                lang == .ru ? "Полное закрытие по крестику (⌘Q)" : "Quit on Close Button (⌘Q)",
+                lang == .ru ? "Завершает приложение, когда закрывается его последнее окно. Вкладки сохраняются!" : "Quits the app when its last window is closed. Tabs and sessions are preserved!",
+                true
+            )
+            ruleCard(
+                lang == .ru ? "Тактильный отклик (Haptic)" : "Haptic Feedback",
+                lang == .ru ? "Виброотклик трекпада Force Touch при сворачивании и закрытии окон" : "Force Touch trackpad vibration when minimizing or closing windows",
+                true
+            )
+            VStack(alignment: .leading, spacing: 7) {
+                Text(lang == .ru ? "Клик колёсиком по Доку" : "Middle-Click on Dock").font(bodyFont(12, weight: .semibold)).foregroundColor(primaryText)
+                let opts = lang == .ru ? ["Новое окно", "Закрыть", "Скрыть", "Выкл"] : ["New Win", "Quit", "Hide", "Off"]
+                let selIdx = middleClickProgress > 0.5 ? 1 : 0
+                HStack(spacing: 4) {
+                    ForEach(Array(opts.enumerated()), id: \.offset) { idx, t in
+                        Text(t)
+                            .font(bodyFont(11, weight: idx == selIdx ? .semibold : .medium))
+                            .frame(maxWidth: .infinity).padding(.vertical, 5)
+                            .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(idx == selIdx ? activeFill : .clear))
+                            .foregroundColor(idx == selIdx ? activeText : secondaryText)
+                    }
+                }
+                .padding(3).background(RoundedRectangle(cornerRadius: 8.5, style: .continuous).fill(Color.black.opacity(0.14)))
+            }
+            .padding(.horizontal, 13).padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(wellFill))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(wellBorder, lineWidth: 1))
+        }
+    }
+
+    private var exclusionsTab: some View {
+        let items: [(String, String, Color)] = [
+            ("Telegram", "ru.keepcoder.Telegram", .blue),
+            ("Discord", "com.hnc.Discord", .indigo),
+            ("Spotify", "com.spotify.client", .green),
+            (lang == .ru ? "Музыка" : "Music", "com.apple.Music", .pink)
+        ]
+        return VStack(spacing: 8) {
+            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                HStack(spacing: 10) {
+                    if idx < icons.count, let img = icons[idx].1 {
+                        Image(decorative: img, scale: 2.0).resizable().frame(width: 24, height: 24).cornerRadius(6)
+                    } else {
+                        RoundedRectangle(cornerRadius: 6).fill(item.2).frame(width: 24, height: 24)
+                            .overlay(
+                                Image(systemName: "dot.radiowaves.left.and.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.white)
+                            )
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.0).font(bodyFont(12, weight: .semibold)).foregroundColor(primaryText)
+                        Text(item.1).font(.system(size: 10, design: .monospaced)).foregroundColor(secondaryText)
+                    }
+                    Spacer()
+                    Image(systemName: "xmark").font(.system(size: 11)).foregroundColor(secondaryText)
+                }
+                .padding(.horizontal, 11).padding(.vertical, 6.5)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(wellFill))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(wellBorder, lineWidth: 1))
+            }
+        }
+    }
+
+    private var systemTab: some View {
+        VStack(spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(lang == .ru ? "Версия v2.2.0 актуальна" : "Version 2.2.0 is up to date").font(bodyFont(12.5, weight: .semibold)).foregroundColor(primaryText)
+                    Text("SHA-256 · GitHub Releases").font(.system(size: 10.5, design: .monospaced)).foregroundColor(secondaryText)
+                }
+                Spacer()
+                Text(lang == .ru ? "Проверить" : "Check").font(bodyFont(11.5, weight: .semibold))
+                    .padding(.horizontal, 11).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(wellFill))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(wellBorder, lineWidth: 1))
+                    .foregroundColor(primaryText)
+            }
+            .padding(.horizontal, 13).padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(wellFill))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(wellBorder, lineWidth: 1))
+
+            VStack(spacing: 0) {
+                row(lang == .ru ? "Запуск при входе в систему" : "Launch at Login", on: true)
+                Rectangle().fill(hairline).frame(height: 1).padding(.leading, 13)
+                row(lang == .ru ? "Показывать окно при старте" : "Show Panel on Launch", on: false)
+                Rectangle().fill(hairline).frame(height: 1).padding(.leading, 13)
+                row(lang == .ru ? "Диагностический журнал" : "Diagnostic Logging", on: false)
+            }
+            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(wellFill))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(wellBorder, lineWidth: 1))
+        }
+    }
+
+    private func row(_ title: String, on: Bool) -> some View {
+        HStack {
+            Text(title).font(bodyFont(12, weight: .medium)).foregroundColor(primaryText)
+            Spacer()
+            toggleView(on)
+        }
+        .padding(.horizontal, 13).padding(.vertical, 8.5)
+    }
+}
+
+// MARK: - Generator 1: 4K Dock Minimize & Restore (3840x2160)
+
+@MainActor
+func generateDockMinimize4K(outputPath: String, lang: Language) {
+    let ptW: CGFloat = 1280
+    let ptH: CGFloat = 720
+    let scale: CGFloat = 3.0 // Exact 3840x2160 4K UHD!
+    let pxW = Int(ptW * scale)
+    let pxH = Int(ptH * scale)
+    let frameCount = 150
+    let delay = 0.02
+
+    let dockIcons: [(String, CGImage?, NSColor)] = [
+        ("Finder", nil, .systemBlue),
+        ("Safari", nil, .systemTeal),
+        ("Notes", nil, .systemYellow),
+        ("Telegram", nil, .systemCyan),
+        ("DockFlow", nil, .systemPurple),
+        ("Music", nil, .systemPink)
+    ]
+
+    let winImg = Draw.drawAppWindowImage(
+        title: lang == .ru ? "Заметки — Notes" : "Notes — Application",
+        appBadge: NSColor(red: 0.96, green: 0.76, blue: 0.18, alpha: 0.85).cgColor
+    )
+
+    let leftCard = CGRect(x: 42, y: 44, width: 576, height: 540)
+    let rightCard = CGRect(x: ptW - 42 - 576, y: 44, width: 576, height: 540)
+
+    // Pre-render static 4K backdrop ONCE so delta LZW keeps file size compact for GitHub
+    let staticBg = AssetsStore.srgbImage(width: pxW, height: pxH) { ctx in
+        ctx.scaleBy(x: scale, y: scale)
+        Draw.drawFrostedBackground(ctx: ctx, width: ptW, height: ptH)
+        Draw.drawHeader(
+            ctx: ctx,
+            width: ptW,
+            topY: ptH - 28,
+            subtitle: lang == .ru
+                ? "Эффект Джинна: повторный клик по иконке плавно сворачивает и разворачивает окно"
+                : "Genie Effect: clicking an active Dock icon smoothly minimizes and restores it",
+            pill: "v2.2.0"
+        )
+        Draw.drawGlassCard(ctx: ctx, rect: leftCard)
+        Draw.drawGlassCard(ctx: ctx, rect: rightCard)
+
+        Draw.drawText(ctx: ctx, lang == .ru ? "КЛИК ПО ИКОНКЕ — СВЕРНУТЬ" : "CLICK ICON — MINIMIZE", at: CGPoint(x: leftCard.midX, y: leftCard.maxY - 34), size: 12.5, weight: .bold, color: Palette.secondaryText, centerX: true, centerY: true)
+        Draw.drawText(ctx: ctx, lang == .ru ? "ПОВТОРНЫЙ КЛИК — РАЗВЕРНУТЬ" : "CLICK AGAIN — RESTORE", at: CGPoint(x: rightCard.midX, y: rightCard.maxY - 34), size: 12.5, weight: .bold, color: Palette.secondaryText, centerX: true, centerY: true)
+    }
+
+    let url = URL(fileURLWithPath: outputPath)
+    let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, frameCount, nil)!
+    CGImageDestinationSetProperties(dest, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+    let fp = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay, kCGImagePropertyGIFUnclampedDelayTime: delay]] as CFDictionary
+
+    let leftWinRect = CGRect(x: leftCard.midX - 185, y: leftCard.minY + 230, width: 370, height: 225)
+    let rightWinRect = CGRect(x: rightCard.midX - 185, y: rightCard.minY + 230, width: 370, height: 225)
+    let leftDockCenter = CGPoint(x: leftCard.midX, y: leftCard.minY + 80)
+    let rightDockCenter = CGPoint(x: rightCard.midX, y: rightCard.minY + 80)
+
+    // Index 2 is Notes in our 6-icon dock (width 420, sidePad 18 -> slot = 384/6 = 64 -> idx 2 center = minX + 18 + 2.5 * 64 = minX + 178 = center - 32)
+    let notesIconPosL = CGPoint(x: leftDockCenter.x - 32, y: leftDockCenter.y + 3)
+    let notesIconPosR = CGPoint(x: rightDockCenter.x - 32, y: rightDockCenter.y + 3)
+
+    let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+    let frameCtx = CGContext(data: nil, width: pxW, height: pxH, bitsPerComponent: 8, bytesPerRow: pxW * 4, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+
+    for f in 0..<frameCount {
+        let t = CGFloat(f) / CGFloat(frameCount)
+        frameCtx.saveGState()
+        frameCtx.clear(CGRect(x: 0, y: 0, width: pxW, height: pxH))
+        frameCtx.draw(staticBg, in: CGRect(x: 0, y: 0, width: pxW, height: pxH))
+        frameCtx.scaleBy(x: scale, y: scale)
+
+        // LEFT: Minimize
+        var lProgress: CGFloat = 0
+        var lCursor = CGPoint(x: leftCard.midX - 45, y: leftCard.midY + 25)
+        var lClick = false
+        var lRipple: CGFloat = 0
+        var lBounce: CGFloat = 0
+
+        if t < 0.24 {
+            let p = easeInOutCubic(t / 0.24)
+            lCursor = CGPoint(x: lerp(leftCard.midX - 45, notesIconPosL.x, p), y: lerp(leftCard.midY + 25, notesIconPosL.y, p))
+        } else if t < 0.34 {
+            lCursor = notesIconPosL
+            lClick = (t >= 0.26 && t <= 0.32)
+            lRipple = clamp((t - 0.26) / 0.08)
+            lBounce = sin(clamp((t - 0.25) / 0.09) * .pi) * 7
+        } else if t < 0.68 {
+            lCursor = notesIconPosL
+            lProgress = clamp((t - 0.34) / 0.34)
         } else {
-            lCursorPos = CGPoint(x: closeBtnTargetL.x + 10, y: closeBtnTargetL.y - 15)
-            rCursorPos = CGPoint(x: closeBtnTargetR.x + 10, y: closeBtnTargetR.y - 15)
-            lWinAlpha = 0.0
-            rWinAlpha = 0.0
-            rRunning = [0, 1]
+            lCursor = notesIconPosL
+            lProgress = 1.0
         }
 
-        DrawUtils.drawWindow(ctx: ctx, rect: leftWinRect, title: winTitle, scale: lWinAlpha > 0 ? 1.0 : 0.0, alpha: lWinAlpha, hoverClose: lHover)
-        DrawUtils.drawDock(ctx: ctx, center: leftDockCenter, width: 280, activeIndex: -1, runningIndices: lRunning)
-        DrawUtils.drawCursor(ctx: ctx, at: lCursorPos, isClicking: lClick)
+        Draw.drawRealDock(ctx: frameCtx, center: leftDockCenter, width: 420, icons: dockIcons, runningIndices: [0, 1, 2, 3, 4], bounceIndex: 2, bounceOffset: lBounce, activeHighlightIndex: 2)
+        Draw.drawGenieWarpedWindow(ctx: frameCtx, windowImage: winImg, normalRect: leftWinRect, targetIconPoint: notesIconPosL, progress: lProgress)
+        Draw.drawCursor(ctx: frameCtx, at: lCursor, clicking: lClick, rippleProgress: lRipple)
 
-        DrawUtils.drawWindow(ctx: ctx, rect: rightWinRect, title: winTitle, scale: rWinAlpha > 0 ? 1.0 : 0.0, alpha: rWinAlpha, hoverClose: rHover)
-        DrawUtils.drawDock(ctx: ctx, center: rightDockCenter, width: 280, activeIndex: -1, runningIndices: rRunning)
-        DrawUtils.drawCursor(ctx: ctx, at: rCursorPos, isClicking: rClick)
+        // RIGHT: Restore
+        var rProgress: CGFloat = 1.0
+        var rCursor = CGPoint(x: notesIconPosR.x + 45, y: notesIconPosR.y + 30)
+        var rClick = false
+        var rRipple: CGFloat = 0
+        var rBounce: CGFloat = 0
 
-        if t > 0.45 {
-            let lBadgeRect = CGRect(x: leftCardRect.midX - 125, y: leftCardRect.minY + 16, width: 250, height: 28)
-            ctx.saveGState()
-            let lBPath = CGPath(roundedRect: lBadgeRect, cornerWidth: 7, cornerHeight: 7, transform: nil)
-            ctx.setFillColor(NSColor(red: 0.35, green: 0.12, blue: 0.12, alpha: 0.8).cgColor)
-            ctx.addPath(lBPath)
-            ctx.fillPath()
-            ctx.setStrokeColor(NSColor(red: 0.95, green: 0.35, blue: 0.35, alpha: 0.5).cgColor)
-            ctx.setLineWidth(1)
-            ctx.addPath(lBPath)
-            ctx.strokePath()
-            ctx.restoreGState()
-            DrawUtils.drawText(ctx: ctx, text: leftBadge, point: CGPoint(x: lBadgeRect.midX, y: lBadgeRect.midY), font: NSFont.systemFont(ofSize: 11.5, weight: .medium), color: NSColor(red: 1.0, green: 0.65, blue: 0.65, alpha: 1.0), alignCenter: true)
-
-            let rBadgeRect = CGRect(x: rightCardRect.midX - 125, y: rightCardRect.minY + 16, width: 250, height: 28)
-            ctx.saveGState()
-            let rBPath = CGPath(roundedRect: rBadgeRect, cornerWidth: 7, cornerHeight: 7, transform: nil)
-            ctx.setFillColor(NSColor(red: 0.10, green: 0.30, blue: 0.16, alpha: 0.85).cgColor)
-            ctx.addPath(rBPath)
-            ctx.fillPath()
-            ctx.setStrokeColor(NSColor(red: 0.35, green: 0.90, blue: 0.45, alpha: 0.5).cgColor)
-            ctx.setLineWidth(1)
-            ctx.addPath(rBPath)
-            ctx.strokePath()
-            ctx.restoreGState()
-            DrawUtils.drawText(ctx: ctx, text: rightBadge, point: CGPoint(x: rBadgeRect.midX, y: rBadgeRect.midY), font: NSFont.systemFont(ofSize: 11.5, weight: .bold), color: NSColor(red: 0.5, green: 1.0, blue: 0.6, alpha: 1.0), alignCenter: true)
+        if t < 0.20 {
+            let p = easeInOutCubic(t / 0.20)
+            rCursor = CGPoint(x: lerp(notesIconPosR.x + 45, notesIconPosR.x, p), y: lerp(notesIconPosR.y + 30, notesIconPosR.y, p))
+        } else if t < 0.30 {
+            rCursor = notesIconPosR
+            rClick = (t >= 0.22 && t <= 0.28)
+            rRipple = clamp((t - 0.22) / 0.08)
+            rBounce = sin(clamp((t - 0.21) / 0.09) * .pi) * 7
+        } else if t < 0.64 {
+            rCursor = notesIconPosR
+            rProgress = 1.0 - clamp((t - 0.30) / 0.34)
         } else {
-            DrawUtils.drawText(ctx: ctx, text: actionHint, point: CGPoint(x: leftCardRect.midX, y: leftCardRect.minY + 22), font: NSFont.systemFont(ofSize: 12.5, weight: .medium), color: NSColor(white: 0.70, alpha: 1.0), alignCenter: true)
-            DrawUtils.drawText(ctx: ctx, text: actionHint, point: CGPoint(x: rightCardRect.midX, y: rightCardRect.minY + 22), font: NSFont.systemFont(ofSize: 12.5, weight: .medium), color: NSColor(white: 0.70, alpha: 1.0), alignCenter: true)
+            rCursor = notesIconPosR
+            rProgress = 0.0
         }
 
-        NSGraphicsContext.restoreGraphicsState()
-        CGImageDestinationAddImage(dest, rep.cgImage!, frameProps as CFDictionary)
+        Draw.drawRealDock(ctx: frameCtx, center: rightDockCenter, width: 420, icons: dockIcons, runningIndices: [0, 1, 2, 3, 4], bounceIndex: 2, bounceOffset: rBounce, activeHighlightIndex: 2)
+        Draw.drawGenieWarpedWindow(ctx: frameCtx, windowImage: winImg, normalRect: rightWinRect, targetIconPoint: notesIconPosR, progress: rProgress)
+        Draw.drawCursor(ctx: frameCtx, at: rCursor, clicking: rClick, rippleProgress: rRipple)
+
+        frameCtx.restoreGState()
+        CGImageDestinationAddImage(dest, frameCtx.makeImage()!, fp)
     }
 
     if CGImageDestinationFinalize(dest) {
-        print("✅ Successfully generated \(outputPath)")
-    } else {
-        print("❌ Failed finalize \(outputPath)")
+        let sz = (try? FileManager.default.attributesOfItem(atPath: outputPath)[.size] as? Int) ?? 0
+        print("Saved 4K GIF \(outputPath) (\(pxW)x\(pxH), \(String(format: "%.2f MB", Double(sz)/1048576.0)))")
+    }
+}
+
+// MARK: - Generator 2: 4K Quit on Close (⌘Q) + Exclusions (3840x2160)
+
+@MainActor
+func generateQuitOnClose4K(outputPath: String, lang: Language) {
+    let ptW: CGFloat = 1280
+    let ptH: CGFloat = 720
+    let scale: CGFloat = 3.0 // Exact 3840x2160 4K!
+    let pxW = Int(ptW * scale)
+    let pxH = Int(ptH * scale)
+    let frameCount = 150
+    let delay = 0.02
+
+    let dockIcons: [(String, CGImage?, NSColor)] = [
+        ("Finder", nil, .systemBlue),
+        ("Safari", nil, .systemTeal),
+        ("Telegram", nil, .systemCyan),
+        ("DockFlow", nil, .systemPurple),
+        ("Music", nil, .systemPink)
+    ]
+
+    let safariImg = Draw.drawAppWindowImage(
+        title: lang == .ru ? "Safari — Браузер" : "Safari — Browser",
+        appBadge: NSColor(red: 0.22, green: 0.62, blue: 0.98, alpha: 0.85).cgColor
+    )
+
+    let leftCard = CGRect(x: 42, y: 44, width: 576, height: 540)
+    let rightCard = CGRect(x: ptW - 42 - 576, y: 44, width: 576, height: 540)
+
+    let staticBg = AssetsStore.srgbImage(width: pxW, height: pxH) { ctx in
+        ctx.scaleBy(x: scale, y: scale)
+        Draw.drawFrostedBackground(ctx: ctx, width: ptW, height: ptH)
+        Draw.drawHeader(
+            ctx: ctx,
+            width: ptW,
+            topY: ptH - 28,
+            subtitle: lang == .ru
+                ? "Красный крестик завершает приложение целиком (⌘Q), оставляя исключения в фоне"
+                : "Red close button fully quits apps (⌘Q) while keeping excluded apps in background",
+            pill: "v2.2.0"
+        )
+        Draw.drawGlassCard(ctx: ctx, rect: leftCard)
+        Draw.drawGlassCard(ctx: ctx, rect: rightCard, highlightStroke: NSColor(white: 1.0, alpha: 0.28))
+
+        Draw.drawText(ctx: ctx, lang == .ru ? "СТАНДАРТНАЯ MACOS" : "DEFAULT MACOS", at: CGPoint(x: leftCard.midX, y: leftCard.maxY - 34), size: 12.5, weight: .bold, color: Palette.coralDot, centerX: true, centerY: true)
+        Draw.drawText(ctx: ctx, lang == .ru ? "С DOCKFLOW v2.2.0" : "WITH DOCKFLOW v2.2.0", at: CGPoint(x: rightCard.midX, y: rightCard.maxY - 34), size: 12.5, weight: .bold, color: Palette.greenDot, centerX: true, centerY: true)
+    }
+
+    let url = URL(fileURLWithPath: outputPath)
+    let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, frameCount, nil)!
+    CGImageDestinationSetProperties(dest, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+    let fp = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay, kCGImagePropertyGIFUnclampedDelayTime: delay]] as CFDictionary
+
+    let lWinRect = CGRect(x: leftCard.midX - 185, y: leftCard.minY + 228, width: 370, height: 225)
+    let rWinRect = CGRect(x: rightCard.midX - 185, y: rightCard.minY + 228, width: 370, height: 225)
+    let lCloseBtn = CGPoint(x: lWinRect.minX + 18.5, y: lWinRect.maxY - 17.5)
+    let rCloseBtn = CGPoint(x: rWinRect.minX + 18.5, y: rWinRect.maxY - 17.5)
+    let lDockCenter = CGPoint(x: leftCard.midX, y: leftCard.minY + 80)
+    let rDockCenter = CGPoint(x: rightCard.midX, y: rightCard.minY + 80)
+
+    let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+    let frameCtx = CGContext(data: nil, width: pxW, height: pxH, bitsPerComponent: 8, bytesPerRow: pxW * 4, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+
+    for f in 0..<frameCount {
+        let t = CGFloat(f) / CGFloat(frameCount)
+        frameCtx.saveGState()
+        frameCtx.clear(CGRect(x: 0, y: 0, width: pxW, height: pxH))
+        frameCtx.draw(staticBg, in: CGRect(x: 0, y: 0, width: pxW, height: pxH))
+        frameCtx.scaleBy(x: scale, y: scale)
+
+        var lWinAlpha: CGFloat = 1.0
+        var rWinAlpha: CGFloat = 1.0
+        var rRunning = [0, 1, 2, 3] // idx 1 = Safari, idx 2 = Telegram
+        var click = false
+        var ripple: CGFloat = 0
+        var lCursor = CGPoint(x: lWinRect.midX, y: lWinRect.midY)
+        var rCursor = CGPoint(x: rWinRect.midX, y: rWinRect.midY)
+
+        if t < 0.24 {
+            let p = easeInOutCubic(t / 0.24)
+            lCursor = CGPoint(x: lerp(lWinRect.midX, lCloseBtn.x, p), y: lerp(lWinRect.midY, lCloseBtn.y, p))
+            rCursor = CGPoint(x: lerp(rWinRect.midX, rCloseBtn.x, p), y: lerp(rWinRect.midY, rCloseBtn.y, p))
+        } else if t < 0.36 {
+            lCursor = lCloseBtn
+            rCursor = rCloseBtn
+            click = (t >= 0.28 && t <= 0.34)
+            ripple = clamp((t - 0.28) / 0.08)
+        } else if t < 0.56 {
+            let p = easeInOutCubic((t - 0.36) / 0.20)
+            lWinAlpha = 1.0 - p
+            rWinAlpha = 1.0 - p
+            lCursor = CGPoint(x: lCloseBtn.x + 12 * p, y: lCloseBtn.y - 18 * p)
+            rCursor = CGPoint(x: rCloseBtn.x + 12 * p, y: rCloseBtn.y - 18 * p)
+            if t > 0.44 { rRunning = [0, 2, 3] } // Safari completely quit! Telegram stays!
+        } else {
+            lWinAlpha = 0
+            rWinAlpha = 0
+            rRunning = [0, 2, 3]
+            lCursor = CGPoint(x: lCloseBtn.x + 12, y: lCloseBtn.y - 18)
+            rCursor = CGPoint(x: rCloseBtn.x + 12, y: rCloseBtn.y - 18)
+        }
+
+        if lWinAlpha > 0.01 {
+            frameCtx.saveGState()
+            frameCtx.setAlpha(lWinAlpha)
+            frameCtx.draw(safariImg, in: lWinRect)
+            frameCtx.restoreGState()
+        }
+        if rWinAlpha > 0.01 {
+            frameCtx.saveGState()
+            frameCtx.setAlpha(rWinAlpha)
+            frameCtx.draw(safariImg, in: rWinRect)
+            frameCtx.restoreGState()
+        }
+
+        Draw.drawRealDock(ctx: frameCtx, center: lDockCenter, width: 370, icons: dockIcons, runningIndices: [0, 1, 2, 3])
+        Draw.drawRealDock(
+            ctx: frameCtx,
+            center: rDockCenter,
+            width: 370,
+            icons: dockIcons,
+            runningIndices: rRunning,
+            labelIndex: t > 0.48 ? 2 : nil,
+            labelText: lang == .ru ? "Telegram • В фоне" : "Telegram • In Background"
+        )
+
+        // Status chips appear cleanly after Safari window finishes closing
+        if t > 0.56 {
+            let fadeP = easeOutCubic(clamp((t - 0.56) / 0.12))
+            frameCtx.saveGState()
+            frameCtx.setAlpha(fadeP)
+
+            let lChip = CGRect(x: leftCard.midX - 175, y: leftCard.midY + 25, width: 350, height: 42)
+            let lp = CGPath(roundedRect: lChip, cornerWidth: 12, cornerHeight: 12, transform: nil)
+            frameCtx.setFillColor(NSColor(red: 0.42, green: 0.10, blue: 0.12, alpha: 0.55).cgColor)
+            frameCtx.addPath(lp); frameCtx.fillPath()
+            frameCtx.setStrokeColor(Palette.coralDot.withAlphaComponent(0.5).cgColor)
+            frameCtx.setLineWidth(1.2)
+            frameCtx.addPath(lp); frameCtx.strokePath()
+            Draw.drawText(ctx: frameCtx, lang == .ru ? "• Точка под Safari осталась • Процесс в RAM" : "• Safari dot remains • Process stays in RAM", at: CGPoint(x: lChip.midX, y: lChip.midY), size: 12.5, weight: .semibold, color: Palette.primaryText, centerX: true, centerY: true)
+
+            let rChip = CGRect(x: rightCard.midX - 185, y: rightCard.midY + 25, width: 370, height: 42)
+            let rp = CGPath(roundedRect: rChip, cornerWidth: 12, cornerHeight: 12, transform: nil)
+            frameCtx.setFillColor(NSColor(red: 0.08, green: 0.30, blue: 0.16, alpha: 0.55).cgColor)
+            frameCtx.addPath(rp); frameCtx.fillPath()
+            frameCtx.setStrokeColor(Palette.greenDot.withAlphaComponent(0.5).cgColor)
+            frameCtx.setLineWidth(1.2)
+            frameCtx.addPath(rp); frameCtx.strokePath()
+            Draw.drawText(ctx: frameCtx, lang == .ru ? "✓ Safari завершён (⌘Q) • Вкладки сохранены" : "✓ Safari Quit (⌘Q) • Tabs Preserved", at: CGPoint(x: rChip.midX, y: rChip.midY), size: 12.5, weight: .semibold, color: Palette.primaryText, centerX: true, centerY: true)
+
+            frameCtx.restoreGState()
+        }
+
+        Draw.drawCursor(ctx: frameCtx, at: lCursor, clicking: click, rippleProgress: ripple)
+        Draw.drawCursor(ctx: frameCtx, at: rCursor, clicking: click, rippleProgress: ripple)
+
+        frameCtx.restoreGState()
+        CGImageDestinationAddImage(dest, frameCtx.makeImage()!, fp)
+    }
+
+    if CGImageDestinationFinalize(dest) {
+        let sz = (try? FileManager.default.attributesOfItem(atPath: outputPath)[.size] as? Int) ?? 0
+        print("Saved 4K GIF \(outputPath) (\(pxW)x\(pxH), \(String(format: "%.2f MB", Double(sz)/1048576.0)))")
+    }
+}
+
+// MARK: - Generator 3: 4K Silky UI Flow (3840x2160)
+
+@MainActor
+func generateUIFlow4K(outputPath: String, lang: Language) {
+    let ptW: CGFloat = 1280
+    let ptH: CGFloat = 720
+    let scale: CGFloat = 3.0 // Exact 3840x2160 4K!
+    let pxW = Int(ptW * scale)
+    let pxH = Int(ptH * scale)
+    let frameCount = 100
+    let delay = 0.02
+
+    let icons: [(String, CGImage?)] = [
+        ("Telegram", AssetsStore.appIcon(key: "tg", paths: ["/Applications/Telegram.app"])),
+        ("Discord", AssetsStore.appIcon(key: "dc", paths: ["/Applications/Discord.app"])),
+        ("Spotify", AssetsStore.appIcon(key: "sp", paths: ["/Applications/Spotify.app"])),
+        ("Music", AssetsStore.appIcon(key: "music", paths: ["/System/Applications/Music.app"]))
+    ]
+
+    let staticBg = AssetsStore.srgbImage(width: pxW, height: pxH) { ctx in
+        ctx.scaleBy(x: scale, y: scale)
+        Draw.drawFrostedBackground(ctx: ctx, width: ptW, height: ptH)
+
+        // Subtle macOS Menu Bar at top
+        ctx.setFillColor(NSColor(white: 0.08, alpha: 0.55).cgColor)
+        ctx.fill(CGRect(x: 0, y: ptH - 28, width: ptW, height: 28))
+        Draw.drawText(ctx: ctx, "Finder   File   Edit   View   Window   Help", at: CGPoint(x: 24, y: ptH - 14), size: 12, weight: .medium, color: Palette.primaryText, centerY: true)
+
+        // DockFlow icon highlighted in menu bar
+        let pill = CGRect(x: ptW / 2 - 22, y: ptH - 24, width: 44, height: 20)
+        let pp = CGPath(roundedRect: pill, cornerWidth: 5, cornerHeight: 5, transform: nil)
+        ctx.setFillColor(NSColor(white: 1, alpha: 0.22).cgColor)
+        ctx.addPath(pp); ctx.fillPath()
+        let miniWin = CGRect(x: ptW / 2 - 8, y: ptH - 19, width: 16, height: 10)
+        let mp = CGPath(roundedRect: miniWin, cornerWidth: 2, cornerHeight: 2, transform: nil)
+        ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(1.5)
+        ctx.addPath(mp); ctx.strokePath()
+
+        // Left side typography showcase
+        let leftX: CGFloat = 72
+        Draw.drawText(ctx: ctx, "DockFlow", at: CGPoint(x: leftX, y: 455), size: 46, weight: .bold, color: Palette.primaryText)
+        let verRect = CGRect(x: leftX + 225, y: 467, width: 88, height: 30)
+        let vp = CGPath(roundedRect: verRect, cornerWidth: 15, cornerHeight: 15, transform: nil)
+        ctx.setFillColor(Palette.activePill.cgColor); ctx.addPath(vp); ctx.fillPath()
+        Draw.drawText(ctx: ctx, "v2.2.0", at: CGPoint(x: verRect.midX, y: verRect.midY), size: 14, weight: .bold, color: Palette.activeText, mono: true, centerX: true, centerY: true)
+
+        let feats = lang == .ru
+            ? [
+                "• Мягкое полупрозрачное стекло под цвет обоев",
+                "• Плавная смена высоты вкладок с лёгким блюром",
+                "• Приятная физика тумблеров и скользящие пилюли",
+                "• Мгновенное закрытие повторным кликом"
+            ]
+            : [
+                "• Soft translucent glass blended with your wallpaper",
+                "• Smooth height resizing and gentle blur tab transitions",
+                "• Tactile switch physics & sliding selection pills",
+                "• Instant second-click toggle in the menu bar"
+            ]
+
+        for (idx, line) in feats.enumerated() {
+            Draw.drawText(ctx: ctx, line, at: CGPoint(x: leftX, y: CGFloat(395 - idx * 38)), size: 16, weight: .medium, color: Palette.secondaryText)
+        }
+    }
+
+    let url = URL(fileURLWithPath: outputPath)
+    let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, frameCount, nil)!
+    CGImageDestinationSetProperties(dest, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+    let fp = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay, kCGImagePropertyGIFUnclampedDelayTime: delay]] as CFDictionary
+
+    let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+    let frameCtx = CGContext(data: nil, width: pxW, height: pxH, bitsPerComponent: 8, bytesPerRow: pxW * 4, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+
+    // Pre-cache UI panel states or render cleanly using ImageRenderer per key phase -> even smoother!
+    let panelTopY: CGFloat = ptH - 46 // pinned neatly right under top Menu Bar!
+    let panelCenterX: CGFloat = 925
+    let panelPresentationScale: CGFloat = 1.28
+    var cachedPanels: [String: CGImage] = [:]
+
+    for f in 0..<frameCount {
+        let t = CGFloat(f) / CGFloat(frameCount)
+        frameCtx.saveGState()
+        frameCtx.clear(CGRect(x: 0, y: 0, width: pxW, height: pxH))
+        frameCtx.draw(staticBg, in: CGRect(x: 0, y: 0, width: pxW, height: pxH))
+        frameCtx.scaleBy(x: scale, y: scale)
+
+        // State choreography across 150 frames (3.0s loop):
+        // 0.00 - 0.14: Panel unfurls cleanly from menu bar (scale 0.96->1.0, alpha 0->1)
+        // 0.14 - 0.34: Toggle flips + MiddleClick switches ("Новое окно" -> "Закрыть")
+        // 0.34 - 0.56: Switches Rules -> Exclusions with smooth height morph (427 -> 392)
+        // 0.56 - 0.78: Switches Exclusions -> System with smooth height morph (392 -> 354)
+        // 0.78 - 1.00: Returns smoothly System -> Rules (354 -> 427) for seamless loop!
+
+        var activeTab = 0
+        var toggleOn = true
+        var midProgress: CGFloat = 0
+        var h: CGFloat = 427
+        var o1: Double = 1, o2: Double = 0, o3: Double = 0
+        var panelAlpha: CGFloat = 1
+        var panelScale: CGFloat = 1
+
+        // Cursor target inside panel coordinate space
+        var cursor = CGPoint(x: panelCenterX + 80, y: panelTopY - 120)
+        var click = false
+
+        if t < 0.08 {
+            let p = easeOutExpo(t / 0.08)
+            panelAlpha = p
+            panelScale = lerp(0.96, 1.0, p)
+            cursor = CGPoint(x: ptW / 2, y: ptH - 14)
+        } else if t < 0.36 {
+            let p = easeInOutCubic((t - 0.08) / 0.22)
+            toggleOn = t < 0.20
+            midProgress = t > 0.28 ? 1.0 : 0.0
+            cursor = CGPoint(
+                x: lerp(panelCenterX + 165 * panelPresentationScale, panelCenterX - 55 * panelPresentationScale, clamp(p)),
+                y: lerp(panelTopY - 82 * panelPresentationScale, panelTopY - 340 * panelPresentationScale, clamp(p))
+            )
+            click = (t >= 0.18 && t <= 0.22) || (t >= 0.27 && t <= 0.31)
+        } else if t < 0.56 {
+            // Switch Rules -> Exclusions cleanly over ~8 frames
+            let trans = easeOutExpo(clamp((t - 0.38) / 0.08))
+            activeTab = t >= 0.38 ? 1 : 0
+            toggleOn = false
+            midProgress = 1.0
+            h = lerp(427, 392, trans)
+            o1 = Double(clamp(1.0 - trans * 1.4))
+            o2 = Double(clamp((trans - 0.2) / 0.8))
+            cursor = CGPoint(x: panelCenterX + 68 * panelPresentationScale, y: panelTopY - 22 * panelPresentationScale)
+            click = (t >= 0.36 && t <= 0.40)
+        } else if t < 0.78 {
+            // Switch Exclusions -> System cleanly over ~8 frames
+            let trans = easeOutExpo(clamp((t - 0.58) / 0.08))
+            activeTab = t >= 0.58 ? 2 : 1
+            h = lerp(392, 354, trans)
+            o2 = Double(clamp(1.0 - trans * 1.4))
+            o3 = Double(clamp((trans - 0.2) / 0.8))
+            cursor = CGPoint(x: panelCenterX + 162 * panelPresentationScale, y: panelTopY - 22 * panelPresentationScale)
+            click = (t >= 0.56 && t <= 0.60)
+        } else {
+            // Switch System -> Rules smoothly over ~8 frames
+            let trans = easeOutExpo(clamp((t - 0.80) / 0.08))
+            activeTab = t >= 0.80 ? 0 : 2
+            toggleOn = true
+            midProgress = 0
+            h = lerp(354, 427, trans)
+            o3 = Double(clamp(1.0 - trans * 1.4))
+            o1 = Double(clamp((trans - 0.2) / 0.8))
+            cursor = CGPoint(x: panelCenterX - 8 * panelPresentationScale, y: panelTopY - 22 * panelPresentationScale)
+            click = (t >= 0.78 && t <= 0.82)
+        }
+
+        let roundedH = (h * 2).rounded() / 2
+        let stateKey = "\(activeTab)-\(toggleOn)-\(Int(midProgress))-\(Int(roundedH))-\(Int((o1 * 20).rounded()))-\(Int((o2 * 20).rounded()))-\(Int((o3 * 20).rounded()))"
+        let panelImg: CGImage
+        if let hit = cachedPanels[stateKey] {
+            panelImg = hit
+        } else {
+            let panelView = UIPanelSnapshotView(
+                lang: lang,
+                activeTab: activeTab,
+                tabPillFraction: CGFloat(activeTab),
+                toggleValue: toggleOn,
+                middleClickProgress: midProgress,
+                panelHeight: roundedH,
+                tab1ContentOpacity: o1,
+                tab2ContentOpacity: o2,
+                tab3ContentOpacity: o3,
+                icons: icons
+            )
+            let rendered = AssetsStore.renderSwiftUI(panelView, scale: 2.0)
+            cachedPanels[stateKey] = rendered
+            panelImg = rendered
+        }
+
+        let drawW = 446 * panelPresentationScale * panelScale
+        let drawH = h * panelPresentationScale * panelScale
+        let drawRect = CGRect(x: panelCenterX - drawW / 2, y: panelTopY - drawH, width: drawW, height: drawH)
+
+        frameCtx.saveGState()
+        frameCtx.setAlpha(panelAlpha)
+        frameCtx.draw(panelImg, in: drawRect)
+        frameCtx.restoreGState()
+
+        Draw.drawCursor(ctx: frameCtx, at: cursor, clicking: click, rippleProgress: click ? 0.3 : 0)
+
+        frameCtx.restoreGState()
+        CGImageDestinationAddImage(dest, frameCtx.makeImage()!, fp)
+    }
+
+    if CGImageDestinationFinalize(dest) {
+        let sz = (try? FileManager.default.attributesOfItem(atPath: outputPath)[.size] as? Int) ?? 0
+        print("Saved 4K GIF \(outputPath) (\(pxW)x\(pxH), \(String(format: "%.2f MB", Double(sz)/1048576.0)))")
     }
 }
 
 // MARK: - Main Execution
-let assetsDir = "/Users/minosssh1./.gemini/antigravity/scratch/DockMinimizer/assets"
 
-print("Rendering Russian 60/50 FPS 2x Retina GIFs...")
-generateDockMinimizeGIF(outputPath: "\(assetsDir)/demo_dock_minimize_ru.gif", lang: .ru)
-generateQuitOnCloseGIF(outputPath: "\(assetsDir)/demo_quit_on_close_ru.gif", lang: .ru)
+_ = NSApplication.shared
+MainActor.assumeIsolated {
+    let assetsDir = "/Users/minosssh1./.gemini/antigravity/scratch/DockMinimizer/assets"
 
-print("Rendering English 60/50 FPS 2x Retina GIFs...")
-generateDockMinimizeGIF(outputPath: "\(assetsDir)/demo_dock_minimize_en.gif", lang: .en)
-generateQuitOnCloseGIF(outputPath: "\(assetsDir)/demo_quit_on_close_en.gif", lang: .en)
-print("All 4 Ultra-HD 60/50 FPS GIFs completed!")
+    let uiOnly = CommandLine.arguments.contains("--ui-only")
+    print("Rendering 4K (3840x2160) 60/50fps GIFs matching DockFlow v2.2.0...")
+    generateUIFlow4K(outputPath: "\(assetsDir)/demo_ui_flow_ru.gif", lang: .ru)
+    generateUIFlow4K(outputPath: "\(assetsDir)/demo_ui_flow_en.gif", lang: .en)
+    if !uiOnly {
+        generateDockMinimize4K(outputPath: "\(assetsDir)/demo_dock_minimize_ru.gif", lang: .ru)
+        generateDockMinimize4K(outputPath: "\(assetsDir)/demo_dock_minimize_en.gif", lang: .en)
+        generateQuitOnClose4K(outputPath: "\(assetsDir)/demo_quit_on_close_ru.gif", lang: .ru)
+        generateQuitOnClose4K(outputPath: "\(assetsDir)/demo_quit_on_close_en.gif", lang: .en)
+    }
+    print("All requested 4K GIFs complete!")
+}

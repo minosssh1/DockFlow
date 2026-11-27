@@ -90,7 +90,7 @@ final class UpdateService: ObservableObject {
         if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
             currentVersion = version
         } else {
-            currentVersion = "2.0.0"
+            currentVersion = "2.2.0"
         }
 
         if let savedPolicy = UserDefaults.standard.string(forKey: checkPolicyKey),
@@ -241,7 +241,7 @@ final class UpdateService: ObservableObject {
     }
 
     /// Installs the verified DMG onto `Bundle.main.bundlePath` using a private 0700 staging directory.
-    func applyUpdateAndRestart(dmgPath: String) {
+    func applyUpdateAndRestart(dmgPath: String) throws {
         let dmgURL = URL(fileURLWithPath: dmgPath)
         let stageDirURL = dmgURL.deletingLastPathComponent()
         let scriptURL = stageDirURL.appendingPathComponent("updater.sh")
@@ -287,7 +287,7 @@ final class UpdateService: ObservableObject {
         # Verify code signature integrity & canonical bundle identifier before replacing
         codesign --verify --deep --strict "$NEW_APP"
         SIGN_INFO=$(codesign -dv "$NEW_APP" 2>&1 || true)
-        if ! echo "$SIGN_INFO" | grep -qE "Identifier=com\\.(dockflow\\.app|jacktony\\.dockminimizer)"; then
+        if ! grep -qE "Identifier=com\\.(dockflow\\.app|jacktony\\.dockminimizer)" <<< "$SIGN_INFO"; then
             exit 1
         fi
 
@@ -316,10 +316,14 @@ final class UpdateService: ObservableObject {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/bash")
             process.arguments = [scriptURL.path, dmgPath, currentPID, targetAppPath, stageDirURL.path]
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
             try process.run()
             NSApplication.shared.terminate(nil)
         } catch {
             LogService.shared.log(level: .error, category: "UpdateService", message: "Failed to launch updater script: \(error.localizedDescription)")
+            throw error
         }
     }
 

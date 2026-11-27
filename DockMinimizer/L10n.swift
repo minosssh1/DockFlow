@@ -983,4 +983,71 @@ enum L10n {
             uk: "Контрольна сума SHA-256 завантаженого образу не збігається! Оновлення скасовано."
         )
     }
+
+    // V2.1 Popover UI
+    static var tabRules: String {
+        lm.text(ru: "Правила", en: "Rules", zh: "规则", uk: "Правила")
+    }
+
+    static var tabExclusions: String {
+        lm.text(ru: "Исключения", en: "Exclusions", zh: "排除", uk: "Винятки")
+    }
+
+    static var tabSystem: String {
+        lm.text(ru: "Система", en: "System", zh: "系统", uk: "Система")
+    }
+
+    static var axActiveShort: String {
+        lm.text(ru: "AX активен", en: "AX Active", zh: "AX 已启用", uk: "AX активний")
+    }
+
+    static var axMissingShort: String {
+        lm.text(ru: "Нет прав AX", en: "AX Missing", zh: "缺少 AX 权限", uk: "Немає прав AX")
+    }
+
+    static var middleClickNewWindowShort: String {
+        lm.text(ru: "Новое окно", en: "New Win", zh: "新窗口", uk: "Нове вікно")
+    }
+
+    static var middleClickQuitShort: String {
+        lm.text(ru: "Закрыть", en: "Quit", zh: "退出", uk: "Закрити")
+    }
+
+    static var middleClickHideShort: String {
+        lm.text(ru: "Скрыть", en: "Hide", zh: "隐藏", uk: "Сховати")
+    }
+
+    static var middleClickOffShort: String {
+        lm.text(ru: "Выкл", en: "Off", zh: "关闭", uk: "Вимк")
+    }
+
+    static var openLogsFolder: String {
+        lm.text(ru: "Папка логов", en: "Open Logs", zh: "打开日志", uk: "Папка логів")
+    }
+
+    static var checkNow: String {
+        lm.text(ru: "Проверить", en: "Check", zh: "检查", uk: "Перевірити")
+    }
+
+    static var checkingNow: String {
+        lm.text(ru: "Проверка...", en: "Checking...", zh: "检查中...", uk: "Перевірка...")
+    }
+
+    static func otaReadyTitle(version: String) -> String {
+        lm.text(
+            ru: "Версия v\(version) готова",
+            en: "Version \(version) Ready",
+            zh: "版本 v\(version) 已就绪",
+            uk: "Версія v\(version) готова"
+        )
+    }
+
+    static func otaUpToDateTitle(version: String) -> String {
+        lm.text(
+            ru: "Версия v\(version) актуальна",
+            en: "Version \(version) is up to date",
+            zh: "v\(version) 已是最新版",
+            uk: "Версія v\(version) актуальна"
+        )
+    }
 }
