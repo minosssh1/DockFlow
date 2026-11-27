@@ -575,7 +575,7 @@ struct UIPanelSnapshotView: View {
             HStack(spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("DockFlow").font(bodyFont(13.5, weight: .bold)).foregroundColor(primaryText)
-                    Text("v2.2.0").font(.system(size: 11, design: .monospaced)).foregroundColor(secondaryText)
+                    Text("v2.0").font(.system(size: 11, design: .monospaced)).foregroundColor(secondaryText)
                 }
                 Spacer()
 
@@ -790,7 +790,7 @@ struct UIPanelSnapshotView: View {
         VStack(spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(lang == .ru ? "Версия v2.2.0 актуальна" : "Version 2.2.0 is up to date").font(bodyFont(12.5, weight: .semibold)).foregroundColor(primaryText)
+                    Text(lang == .ru ? "Версия v2.0 актуальна" : "Version 2.0 is up to date").font(bodyFont(12.5, weight: .semibold)).foregroundColor(primaryText)
                     Text("SHA-256 · GitHub Releases").font(.system(size: 10.5, design: .monospaced)).foregroundColor(secondaryText)
                 }
                 Spacer()
@@ -832,7 +832,7 @@ struct UIPanelSnapshotView: View {
 func generateDockMinimize4K(outputPath: String, lang: Language) {
     let ptW: CGFloat = 1280
     let ptH: CGFloat = 720
-    let scale: CGFloat = 3.0 // Exact 3840x2160 4K UHD!
+    let scale: CGFloat = 1.5 // 1920x1080 Full HD!
     let pxW = Int(ptW * scale)
     let pxH = Int(ptH * scale)
     let frameCount = 150
@@ -969,7 +969,7 @@ func generateDockMinimize4K(outputPath: String, lang: Language) {
 func generateQuitOnClose4K(outputPath: String, lang: Language) {
     let ptW: CGFloat = 1280
     let ptH: CGFloat = 720
-    let scale: CGFloat = 3.0 // Exact 3840x2160 4K!
+    let scale: CGFloat = 1.5 // 1920x1080 Full HD!
     let pxW = Int(ptW * scale)
     let pxH = Int(ptH * scale)
     let frameCount = 150
@@ -1134,7 +1134,7 @@ func generateQuitOnClose4K(outputPath: String, lang: Language) {
 func generateUIFlow4K(outputPath: String, lang: Language) {
     let ptW: CGFloat = 1280
     let ptH: CGFloat = 720
-    let scale: CGFloat = 3.0 // Exact 3840x2160 4K!
+    let scale: CGFloat = 1.5 // 1920x1080 Full HD!
     let pxW = Int(ptW * scale)
     let pxH = Int(ptH * scale)
     let frameCount = 165 // Smooth 3.3s loop @ 50fps browser-max
@@ -1169,10 +1169,10 @@ func generateUIFlow4K(outputPath: String, lang: Language) {
         // Left side typography showcase
         let leftX: CGFloat = 72
         Draw.drawText(ctx: ctx, "DockFlow", at: CGPoint(x: leftX, y: 455), size: 46, weight: .bold, color: Palette.primaryText)
-        let verRect = CGRect(x: leftX + 225, y: 467, width: 88, height: 30)
+        let verRect = CGRect(x: leftX + 225, y: 467, width: 76, height: 30)
         let vp = CGPath(roundedRect: verRect, cornerWidth: 15, cornerHeight: 15, transform: nil)
         ctx.setFillColor(Palette.activePill.cgColor); ctx.addPath(vp); ctx.fillPath()
-        Draw.drawText(ctx: ctx, "v2.2.0", at: CGPoint(x: verRect.midX, y: verRect.midY), size: 14, weight: .bold, color: Palette.activeText, mono: true, centerX: true, centerY: true)
+        Draw.drawText(ctx: ctx, "v2.0", at: CGPoint(x: verRect.midX, y: verRect.midY), size: 14, weight: .bold, color: Palette.activeText, mono: true, centerX: true, centerY: true)
 
         let feats = lang == .ru
             ? [
@@ -1339,7 +1339,7 @@ func generateUIFlow4K(outputPath: String, lang: Language) {
                 activeTabYOffset: yOffsets,
                 icons: icons
             )
-            let rendered = AssetsStore.renderSwiftUI(panelView, scale: 3.6) // Exact 1:1 4K pixel mapping!
+            let rendered = AssetsStore.renderSwiftUI(panelView, scale: 1.8) // Exact 1:1 1080p pixel mapping!
             cachedPanels[stateKey] = rendered
             panelImg = rendered
         }

@@ -33,22 +33,30 @@
 
 ---
 
-### ✨ В действии (`1080p · 120 FPS`)
+### ✨ В действии (`1080p`)
+
+<div align="center">
 
 #### 1. Живой интерфейс и плавные переходы
 *Полупрозрачное стекло под цвет обоев, плавная смена высоты вкладок и приятный отклик элементов*
+<br/><br/>
+<img src="assets/demo_ui_flow_ru.gif" width="860" alt="DockFlow v2.0 — Живой интерфейс и плавные переходы" />
 
-https://github.com/user-attachments/assets/e66ad055-5eed-420c-a6c6-f7735503f174
+<br/><br/>
 
 #### 2. Эффект Джинна в Доке
 *Повторный клик по активному приложению в Доке плавно сворачивает и разворачивает окно*
+<br/><br/>
+<img src="assets/demo_dock_minimize_ru.gif" width="860" alt="DockFlow — Эффект Джинна в Доке" />
 
-https://github.com/user-attachments/assets/217ff3aa-9f83-465b-95ae-ac8eaea23832
+<br/><br/>
 
 #### 3. Полное закрытие (`⌘Q`) и исключения
 *Красный крестик завершает программу целиком с сохранением вкладок, а мессенджеры и плееры продолжают работать в фоне*
+<br/><br/>
+<img src="assets/demo_quit_on_close_ru.gif" width="860" alt="DockFlow — Закрытие по крестику и исключения" />
 
-https://github.com/user-attachments/assets/5702f32f-199c-4d57-95e3-96ef74aebdf8
+</div>
 
 <details>
 <summary><b>📸 Скриншоты всех вкладок по отдельности (нажмите, чтобы открыть)</b></summary>

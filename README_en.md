@@ -33,22 +33,30 @@
 
 ---
 
-### ✨ In Motion (`1080p · 120 FPS`)
+### ✨ In Motion (`1080p`)
+
+<div align="center">
 
 #### 1. Soft Frosted UI & Smooth Transitions
 *Translucent backdrop that gently adapts to your wallpaper, silky tab height transitions, and crisp spring controls*
+<br/><br/>
+<img src="assets/demo_ui_flow_en.gif" width="860" alt="DockFlow v2.0 — Frosted Glass UI & Transitions" />
 
-https://github.com/user-attachments/assets/92e17222-cd5f-405c-866e-e8113b7fe305
+<br/><br/>
 
 #### 2. Genie Effect on Dock Click
 *Clicking an active app icon in the Dock smoothly minimizes its window; clicking again restores it*
+<br/><br/>
+<img src="assets/demo_dock_minimize_en.gif" width="860" alt="DockFlow — Genie Effect in Dock" />
 
-https://github.com/user-attachments/assets/e65c3337-7895-4872-86bc-055817dd2430
+<br/><br/>
 
 #### 3. Smart Quit on Close (`⌘Q`) & Exclusions
 *Closing the last window quits heavy apps cleanly while preserving browser tabs — messengers stay running in background*
+<br/><br/>
+<img src="assets/demo_quit_on_close_en.gif" width="860" alt="DockFlow — Quit on Close & Exclusions" />
 
-https://github.com/user-attachments/assets/f6aac437-5d68-4079-822f-0a089928484c
+</div>
 
 <details>
 <summary><b>📸 Individual Tab Screenshots (Click to expand)</b></summary>
